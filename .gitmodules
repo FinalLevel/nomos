@@ -1,0 +1,3 @@
+[submodule "fl_libs"]
+	path = fl_libs
+	url = git@github.com:FinalLevel/libs.git
