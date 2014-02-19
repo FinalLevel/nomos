@@ -1,4 +1,4 @@
-nomos
+Nomos Storage
 =====
 
-Nomos Storage server is a fast key - value persistent storage, which is simple but extremely fast
+Nomos Storage is a key-value, persistent and high available server, which is simple but extremely fast

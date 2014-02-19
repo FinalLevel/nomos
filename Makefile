@@ -6,7 +6,7 @@ LD=./fl_libs
 
 LIBS=-lpthread -lmysqlclient
 LIBDIRS=-L/usr/lib/mysql
-INCLUDEDIRS=-I/usr/include/mysql -I../ -I./
+INCLUDEDIRS=-I/usr/include/mysql -I./fl_libs -I./
 CPPFLAGS=-DLINUX -D_THREAD_SAFE
 
 LINK=$(LINKER)
@@ -18,7 +18,7 @@ CC=$(COMPILER) $(INCLUDEDIRS) -MD -g -Wall -std=c++0x
 NOMOS_OBJ=nomos.cpp $(LOBJ)
 
 all: $(NOMOS_OBJ)
-	$(LINKER) -g $(OPFLAGS) -o nomos $(NOMOS_OBJ) $(LIBDIRS) $(LIBS)
+	$(LINKER) -g $(OPFLAGS) -o nomos $(NOMOS_OBJ) $(LIBDIRS) $(LIBS) $(INCLUDEDIRS)
 
 %.o: %.cpp
 	$(CC) -c $< -o $@ $(CPPFLAGS) $(OPFLAGS)
