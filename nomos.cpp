@@ -32,4 +32,5 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 	log::Info::L("Starting Nomos Storage server\n");
+	return 0;
 };
