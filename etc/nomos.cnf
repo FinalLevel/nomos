@@ -1,0 +1,6 @@
+[nomos-server]
+log=/var/log/nomos
+logLevel=0
+logStdout=on
+listen=127.0.0.1
+port=1101

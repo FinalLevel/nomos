@@ -15,10 +15,10 @@ LOBJ=$(LD)/network_buffer.o $(LD)/bstring.o $(LD)/file.o $(LD)/socket.o $(LD)/ac
 OPFLAGS = 
 CC=$(COMPILER) $(INCLUDEDIRS) -MD -g -Wall -std=c++0x
 
-NOMOS_OBJ=nomos.cpp $(LOBJ)
+NOMOS_OBJ=nomos.o config.o nomos_log.o $(LOBJ)
 
 all: $(NOMOS_OBJ)
-	$(LINKER) -g $(OPFLAGS) -o nomos $(NOMOS_OBJ) $(LIBDIRS) $(LIBS) $(INCLUDEDIRS)
+	$(LINKER) -g $(OPFLAGS) -o nomos $(NOMOS_OBJ) $(LIBDIRS) $(LIBS)
 
 %.o: %.cpp
 	$(CC) -c $< -o $@ $(CPPFLAGS) $(OPFLAGS)
