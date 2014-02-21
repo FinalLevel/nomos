@@ -11,6 +11,8 @@
 // Description: Nomos storage data item classes
 ///////////////////////////////////////////////////////////////////////////////
 
+#include <cstdint>
+
 namespace fl {
 	namespace nomos {
 		
@@ -35,11 +37,19 @@ namespace fl {
 		class Item
 		{
 		public:
+			Item();
+			~Item();
 			
+			Item(const Item &item) = delete;
+			Item(Item &&item)
+				: _header(item._header), _data(item._data)
+			{
+				item._data = NULL;
+				item._header.size = 0;
+			}
 		private:
-			ItemHeader _header;
-			
 			typedef void *TMemPtr;
+			ItemHeader _header;
 			TMemPtr _data;
 		};
 	};
