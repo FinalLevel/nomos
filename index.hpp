@@ -4,7 +4,8 @@
 
 ///////////////////////////////////////////////////////////////////////////////
 //
-// Copyright Denys Misko <gdraal@gmail.com>, Final Level, 2014.
+// Copyright (c) 2014 Final Level
+// Author: Denys Misko <gdraal@gmail.com>
 // Distributed under BSD (3-Clause) License (See
 // accompanying file LICENSE)
 //
@@ -26,7 +27,7 @@ namespace fl {
 		using fl::threads::Mutex;
 		using fl::threads::AutoMutex;
 		using fl::strings::BString;
-		
+	
 		class IndexError : public fl::exceptions::Error
 		{
 		public:
@@ -60,7 +61,13 @@ namespace fl {
 			static TopLevelIndex *createFromDirectory(const std::string &path);
 			static TopLevelIndex *create(const std::string &path, const EKeyType subLevelKeyType, const EKeyType itemKeyType);
 			virtual bool load(const std::string &path) = 0;
-			virtual class Item *find(const std::string &subLevel, const std::string &key) = 0;
+			virtual TItemSharedPtr find(const std::string &subLevel, const std::string &key, 
+				const ItemHeader::TTime curTime) = 0;
+			virtual void put(const std::string &subLevel, const std::string &key, TItemSharedPtr &item) = 0;
+			virtual bool remove(const std::string &subLevel, const std::string &itemKey) = 0;
+			virtual bool touch(const std::string &subLevel, const std::string &itemKey, 
+				const ItemHeader::TTime setTime, const ItemHeader::TTime curTime) = 0;
+			virtual void clearOld(const ItemHeader::TTime curTime) = 0;
 		private:
 			static void _formMetaFileName(const std::string &path, BString &metaFileName);
 			static TopLevelIndex *_create(const std::string &path, MetaData &md);
@@ -74,8 +81,15 @@ namespace fl {
 			
 			bool create(const std::string &level, const EKeyType subLevelKeyType, const EKeyType itemKeyType);
 			
-			bool put(const std::string &level, const std::string &subLevel, const std::string &itemKey, Item &&item);
+			bool put(const std::string &level, const std::string &subLevel, const std::string &itemKey, TItemSharedPtr &item);
+			TItemSharedPtr find(const std::string &level, const std::string &subLevel, const std::string &itemKey, 
+				const ItemHeader::TTime curTime);
+			bool touch(const std::string &level, const std::string &subLevel, const std::string &itemKey, 
+				const ItemHeader::TTime setTime, const ItemHeader::TTime curTime);
+			bool remove(const std::string &level, const std::string &subLevel, const std::string &itemKey);
+			
 			bool load(const std::string &path);
+			void clearOld(const ItemHeader::TTime curTime);
 			
 			Index(const Index &) = delete;
 			const size_t size() const
@@ -87,7 +101,8 @@ namespace fl {
 			std::string _path;
 			
 			typedef std::string TTopLevelKey;
-			typedef boost::unordered_map<TTopLevelKey, TopLevelIndex*> TTopLevelIndex;
+			typedef std::shared_ptr<TopLevelIndex> TTopLevelIndexPtr;
+			typedef boost::unordered_map<TTopLevelKey, TTopLevelIndexPtr> TTopLevelIndex;
 			TTopLevelIndex _index;
 			Mutex _sync;
 		};

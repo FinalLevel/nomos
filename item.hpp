@@ -4,7 +4,8 @@
 
 ///////////////////////////////////////////////////////////////////////////////
 //
-// Copyright Denys Misko <gdraal@gmail.com>, Final Level, 2014.
+// Copyright (c) 2014 Final Level
+// Author: Denys Misko <gdraal@gmail.com>
 // Distributed under BSD (3-Clause) License (See
 // accompanying file LICENSE)
 //
@@ -12,6 +13,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 #include <cstdint>
+#include <memory>
 
 namespace fl {
 	namespace nomos {
@@ -32,6 +34,7 @@ namespace fl {
 				u_int64_t tag;
 			};
 			UTag timeTag;
+			void setTag(const TTime curTime);
 		};
 		
 		class Item
@@ -47,11 +50,26 @@ namespace fl {
 				item._data = NULL;
 				item._header.size = 0;
 			}
+			const bool isValid(const ItemHeader::TTime curTime)
+			{
+				if (_header.liveTo)
+				{
+					return (_header.liveTo > curTime);
+				}
+				else
+					return true;
+			}
+			void setLiveTo(const ItemHeader::TTime setTime, const ItemHeader::TTime curTime)
+			{
+				_header.liveTo = setTime;
+				_header.setTag(curTime);
+			}
 		private:
 			typedef void *TMemPtr;
 			ItemHeader _header;
 			TMemPtr _data;
 		};
+		typedef std::shared_ptr<Item> TItemSharedPtr;
 	};
 };
 

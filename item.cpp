@@ -1,6 +1,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 //
-// Copyright Denys Misko <gdraal@gmail.com>, Final Level, 2014.
+// Copyright (c) 2014 Final Level
+// Author: Denys Misko <gdraal@gmail.com>
 // Distributed under BSD (3-Clause) License (See
 // accompanying file LICENSE)
 //
@@ -17,11 +18,18 @@ using namespace fl::nomos;
 Item::Item()
 	: _data(NULL)
 {
-	bzero(&_header, 0);
+	bzero(&_header, sizeof(_header));
 }
 	
 Item::~Item()
 {
 	free(_data);
+}
+
+void ItemHeader::setTag(const TTime curTime)
+{
+	static decltype(timeTag._opNumber) opNumber;
+	timeTag._time = curTime;
+	timeTag._opNumber = __sync_add_and_fetch(&opNumber, 1);
 }
 

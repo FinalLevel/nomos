@@ -1,6 +1,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 //
-// Copyright Denys Misko <gdraal@gmail.com>, Final Level, 2014.
+// Copyright (c) 2014 Final Level
+// Author: Denys Misko <gdraal@gmail.com>
 // Distributed under BSD (3-Clause) License (See
 // accompanying file LICENSE)
 //

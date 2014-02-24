@@ -1,6 +1,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 //
-// Copyright Denys Misko <gdraal@gmail.com>, Final Level, 2014.
+// Copyright (c) 2014 Final Level
+// Author: Denys Misko <gdraal@gmail.com>
 // Distributed under BSD (3-Clause) License (See
 // accompanying file LICENSE)
 //
@@ -14,11 +15,13 @@
 #include "bstring.hpp"
 
 #include "index.hpp"
+#include "time.hpp"
 
 
 using namespace fl::nomos;
 using namespace fl::fs;
 using fl::strings::BString;
+using fl::chrono::Time;
 
 class TestIndexPath
 {
@@ -59,6 +62,58 @@ BOOST_AUTO_TEST_CASE( CreateIndex )
 		
 		Index indexLoad(testPath.path());
 		BOOST_CHECK(indexLoad.size() == 2);
+	);
+}
+
+
+BOOST_AUTO_TEST_CASE( AddFindTouchIndex )
+{
+	TestIndexPath testPath;
+	Time curTime;
+	BOOST_CHECK_NO_THROW(
+		Index index(testPath.path());
+		TItemSharedPtr item(new Item());
+		item->setLiveTo(curTime.unix(), curTime.unix());
+		BOOST_CHECK(index.create("testLevel", KEY_INT8, KEY_STRING));
+		BOOST_CHECK(index.put("testLevel", "1", "testKey", item));
+		BOOST_CHECK(index.find("testLevel", "1", "testKey", curTime.unix()).get() == NULL);
+		item->setLiveTo(curTime.unix() + 1, curTime.unix());
+		BOOST_CHECK(index.put("testLevel", "1", "testKey", item));
+		BOOST_CHECK(index.find("testLevel", "1", "testKey", curTime.unix()).get() == item.get());
+		
+		BOOST_CHECK(index.touch("testLevel", "1", "testKey", curTime.unix(), curTime.unix()));
+		BOOST_CHECK(index.find("testLevel", "1", "testKey", curTime.unix()).get() == NULL);
+	);
+}
+
+BOOST_AUTO_TEST_CASE( AddFindRemoveIndex )
+{
+	TestIndexPath testPath;
+	Time curTime;
+	BOOST_CHECK_NO_THROW(
+		Index index(testPath.path());
+
+		TItemSharedPtr item(new Item());
+		BOOST_CHECK(index.create("testLevel", KEY_INT8, KEY_STRING));
+		BOOST_CHECK(index.put("testLevel", "1", "testKey", item));
+		auto findItem = index.find("testLevel", "1", "testKey", curTime.unix());
+		BOOST_CHECK(findItem.get() != NULL);
+		
+		TItemSharedPtr item2(new Item());
+		BOOST_CHECK(index.put("testLevel", "1", "testKey", item2));
+		findItem = index.find("testLevel", "1", "testKey", curTime.unix());
+		BOOST_CHECK(findItem.get() == item2.get());
+
+		BOOST_CHECK(index.put("testLevel", "1", "testKey2", item));
+		findItem = index.find("testLevel", "1", "testKey2", curTime.unix());
+		BOOST_CHECK(findItem.get() == item.get());
+		
+		BOOST_CHECK(index.find("testLevel", "1", "testKey3", curTime.unix()).get() == NULL);
+		
+		BOOST_CHECK(index.remove("testLevel", "1", "testKey"));
+		findItem = index.find("testLevel", "1", "testKey", curTime.unix());
+		BOOST_CHECK(findItem.get() == NULL);
+		BOOST_CHECK(index.remove("testLevel", "1", "testKey") == false);
 	);
 }
 
