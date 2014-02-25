@@ -12,6 +12,7 @@
 #include <cstdlib>
 
 #include "item.hpp"
+#include "nomos_log.hpp"
 
 using namespace fl::nomos;
 
@@ -19,6 +20,20 @@ Item::Item()
 	: _data(NULL)
 {
 	bzero(&_header, sizeof(_header));
+}
+
+Item::Item(const char *data, const ItemHeader::TSize size, const ItemHeader::TTime liveTo, const ItemHeader::TTime curTime)
+	: _data(malloc(size))
+{
+	if (!_data)
+	{
+		log::Fatal::L("Can't allocate data for item\n");
+		throw std::bad_alloc();
+	}
+	memcpy(_data, data, size);
+	_header.size = size;
+	_header.liveTo = liveTo;
+	_header.setTag(curTime);
 }
 	
 Item::~Item()

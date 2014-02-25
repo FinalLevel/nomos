@@ -15,7 +15,7 @@ NomosLogSystem NomosLogSystem::_logSystem;
 NomosLogSystem::NomosLogSystem()
 	: LogSystem("nomos"), _logLevel(FL_LOG_LEVEL)
 {
-	
+	_logSystem.addTarget(new fl::log::ScreenTarget());
 }
 
 bool NomosLogSystem::log(
@@ -35,6 +35,7 @@ bool NomosLogSystem::log(
 
 bool NomosLogSystem::init(fl::nomos::Config *config)
 {
+	_logSystem.clearTargets();
 	_logSystem._logLevel = config->logLevel();
 	if (!config->logPath().empty())
 		_logSystem.addTarget(new fl::log::FileTarget(config->logPath().c_str()));

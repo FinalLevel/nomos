@@ -41,6 +41,7 @@ namespace fl {
 		{
 		public:
 			Item();
+			Item(const char *data, const ItemHeader::TSize size, const ItemHeader::TTime liveTo, const ItemHeader::TTime curTime);
 			~Item();
 			
 			Item(const Item &item) = delete;
@@ -59,13 +60,29 @@ namespace fl {
 				else
 					return true;
 			}
+			void setDeleted()
+			{
+				_header.liveTo = 1;
+			}
 			void setLiveTo(const ItemHeader::TTime setTime, const ItemHeader::TTime curTime)
 			{
 				_header.liveTo = setTime;
 				_header.setTag(curTime);
 			}
-		private:
+			const ItemHeader &header() const
+			{
+				return _header;
+			}
 			typedef void *TMemPtr;
+			TMemPtr data()
+			{
+				return _data;
+			}
+			const ItemHeader::TSize size() const
+			{
+				return _header.size;
+			}
+		private:
 			ItemHeader _header;
 			TMemPtr _data;
 		};

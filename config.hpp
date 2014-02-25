@@ -18,6 +18,8 @@ namespace fl {
 	namespace nomos {
 		
 		const char * const DEFAULT_CONFIG = "./etc/nomos.cnf";
+		const int MAX_BUF_SIZE = 300000;
+		const size_t MAX_TOP_LEVEL_NAME_LENGTH = 16;
 		
 		class Config
 		{

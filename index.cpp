@@ -8,7 +8,6 @@
 // Description: Index maintenance classes
 ///////////////////////////////////////////////////////////////////////////////
 
-#include <type_traits>
 #include "index.hpp"
 #include "dir.hpp"
 #include "nomos_log.hpp"
@@ -25,6 +24,25 @@ void TopLevelIndex::_formMetaFileName(const std::string &path, BString &metaFile
 {
 	metaFileName.sprintfSet("%s/.meta", path.c_str());
 }
+
+bool TopLevelIndex::_createDataFile(const std::string &path, const u_int32_t curTime, const u_int32_t openNumber, 
+	const MetaData &md, File &file)
+{
+	BString fileName;
+	fileName.sprintfSet("%s/data_%u_%u", path.c_str(), curTime, openNumber);
+	if (fileExists(fileName.c_str()))
+	{
+		log::Fatal::L("TopLevelIndex data file already exists %s\n", fileName.c_str());
+		return false;
+	}
+	if (!file.open(fileName.c_str(), O_CREAT | O_WRONLY))
+		return false;
+	if (file.write(&md, sizeof(md)) == sizeof(md))
+		return true;
+	else
+		return false;
+}
+
 
 template <typename TSubLevelKey, typename TItemKey>
 class MemmoryTopLevelIndex : public TopLevelIndex
@@ -59,6 +77,7 @@ public:
 		if (item == subLevel->second[sliceID].end())
 			return false;
 		else {
+			item->second->setDeleted();
 			subLevel->second[sliceID].erase(item);	
 			return true;
 		}
@@ -111,11 +130,66 @@ public:
 	
 	virtual void put(const std::string &subLevel, const std::string &key, TItemSharedPtr &item)
 	{
-		const TSubLevelKey subLevelKey = convertStdStringTo<TSubLevelKey>(subLevel);
-		const TItemKey itemKey = convertStdStringTo<TItemKey>(key);
+		DataPacket dataPacket;
+		dataPacket.subLevelKey = convertStdStringTo<TSubLevelKey>(subLevel);
+		dataPacket.itemKey = convertStdStringTo<TItemKey>(key);
+		dataPacket.item = item;
+		
 		AutoMutex autoSync(&_sync);
-		_put(subLevelKey, itemKey, item);
+		_put(dataPacket.subLevelKey, dataPacket.itemKey, item);
+		_sync.unLock();
+		
+		_packetSync.lock();
+		_dataPackets.push_back(dataPacket);
+		_packetSync.unLock();
 	}
+	
+	virtual bool sync(BString &buf, const ItemHeader::TTime curTime)
+	{
+		AutoMutex autoSync;
+		if (!autoSync.tryLock(&_diskLock)) // some process already working with this level
+			return false;
+		
+		TDataPacketList workPackets;
+
+		_packetSync.lock();
+		workPackets = std::move(_dataPackets);
+		_packetSync.unLock();
+		if (workPackets.empty()) // work ended
+			return true;
+		
+		if (!_openFiles(curTime))
+		{
+			log::Fatal::L("Can't open files for %s synchronization\n", _path.c_str());
+			throw std::exception();
+		}
+
+		EIndexCMDType::EIndexCMDType cmd = EIndexCMDType::PUT;
+		buf.clear();
+		for (auto dataPacket = workPackets.begin(); dataPacket != workPackets.end(); dataPacket++) {
+			if (!dataPacket->item->isValid(curTime))
+				continue;
+			
+			buf.binaryAdd(&cmd, sizeof(cmd));
+			ItemHeader &itemHeader = *(ItemHeader*)buf.reserveBuffer(sizeof(ItemHeader));
+			itemHeader = dataPacket->item->header();
+			BString::TSize curPos = buf.size();
+			buf.binaryAdd(dataPacket->subLevelKey);
+			buf.binaryAdd(dataPacket->itemKey);
+			buf.binaryAdd(dataPacket->item->data(), itemHeader.size);
+			itemHeader.size = (buf.size() - curPos); // setFullPacketSize
+			
+			if ((buf.size() > MAX_BUF_SIZE) || ((dataPacket + 1) == workPackets.end())) {
+				if (_dataFile.write(buf.data(), buf.size()) != buf.size()) { // skip 
+					log::Fatal::L("Can't sync %s\n", _path.c_str());
+					throw std::exception();
+				};
+				buf.clear();
+			}
+		}
+		return true;
+	}
+	
 	
 	virtual void clearOld(const ItemHeader::TTime curTime)
 	{
@@ -149,12 +223,37 @@ private:
 	
 	std::string _path;
 	MetaData _md;
-	typedef boost::unordered_map<TItemKey, TItemSharedPtr> TItemIndex;
+	typedef unordered_map<TItemKey, TItemSharedPtr> TItemIndex;
 	typedef std::vector<TItemIndex> TItemIndexVector;
-	typedef boost::unordered_map<TSubLevelKey, TItemIndexVector> TSubLevelIndex;
+	typedef unordered_map<TSubLevelKey, TItemIndexVector> TSubLevelIndex;
 	TSubLevelIndex _subLevelItem;
 	Mutex _sync;
 	TSliceCount _slicesCount;
+	
+	struct DataPacket
+	{
+		TSubLevelKey subLevelKey;
+		TItemKey itemKey;
+		TItemSharedPtr item;
+	};
+	
+	Mutex _packetSync;
+	typedef std::vector<DataPacket> TDataPacketList;
+	TDataPacketList _dataPackets;
+	
+	Mutex _diskLock;
+	File _dataFile;
+	bool _openFiles(const u_int32_t curTime)
+	{
+		if (!_dataFile.descr()) // not open
+		{
+			static u_int32_t openNumber = 0;
+			openNumber++;
+			if (!_createDataFile(_path, curTime, openNumber, _md, _dataFile))
+				return false;
+		}
+		return true;
+	}
 };
 
 template <EKeyType type>
@@ -166,16 +265,6 @@ template <>
 struct TKeyType<KEY_STRING>  
 {	
 	typedef std::string type;
-};
-template <>
-struct TKeyType<KEY_INT8>  
-{	
-	typedef u_int8_t type;
-};
-template <>
-struct TKeyType<KEY_INT16>  
-{	
-	typedef u_int16_t type;
 };
 template <>
 struct TKeyType<KEY_INT32>  
@@ -197,10 +286,6 @@ TopLevelIndex *createTopLevelIndex(
 	{
 	case KEY_STRING:
 		return new TIndexClass<TSubLevelKey, TKeyType<KEY_STRING>::type>(path, md);
-	case KEY_INT8:
-		return new TIndexClass<TSubLevelKey, TKeyType<KEY_INT8>::type>(path, md);
-	case KEY_INT16:
-		return new TIndexClass<TSubLevelKey, TKeyType<KEY_INT16>::type>(path, md);
 	case KEY_INT32:
 		return new TIndexClass<TSubLevelKey, TKeyType<KEY_INT32>::type>(path, md);
 	case KEY_INT64:
@@ -220,10 +305,6 @@ TopLevelIndex *createTopLevelIndex(
 	{
 		case KEY_STRING:
 			return createTopLevelIndex<TIndexClass, TKeyType<KEY_STRING>::type>(itemKeyType, path, md);
-		case KEY_INT8:
-			return createTopLevelIndex<TIndexClass, TKeyType<KEY_INT8>::type>(itemKeyType, path, md);
-		case KEY_INT16:
-			return createTopLevelIndex<TIndexClass, TKeyType<KEY_INT16>::type>(itemKeyType, path, md);
 		case KEY_INT32:
 			return createTopLevelIndex<TIndexClass, TKeyType<KEY_INT32>::type>(itemKeyType, path, md);
 		case KEY_INT64:
@@ -292,7 +373,7 @@ Index::Index(const std::string &path)
 			log::Error::L("Cannot load TopLevelIndex %s\n", topLevelPath.c_str());
 			continue;
 		}
-		_index.emplace(std::string(dir.name()), topLevelIndex);
+		_index.emplace(std::string(dir.name()), TTopLevelIndexPtr(topLevelIndex));
 	}
 	log::Info::L("Loaded %u top indexes\n", _index.size());
 }
@@ -303,6 +384,9 @@ Index::~Index()
 
 bool Index::_checkLevelName(const std::string &name)
 {
+	if (name.size() > MAX_TOP_LEVEL_NAME_LENGTH)
+		return false;
+	
 	for (std::string::const_iterator c = name.begin(); c != name.end(); c++) {
 		auto ch = (*c);
 		if (!isxdigit(ch) && (ch != '_') && (ch != '-') && (ch != '.')) {
@@ -315,15 +399,31 @@ bool Index::_checkLevelName(const std::string &name)
 	return true;
 }
 
+bool Index::sync(const ItemHeader::TTime curTime)
+{
+	AutoMutex autoSync(&_sync);
+	auto indexCopy = _index;
+	_sync.unLock();
+	
+	BString buf(MAX_BUF_SIZE);
+	for (auto topLevel = indexCopy.begin(); topLevel != indexCopy.end(); topLevel++) {
+		if (!topLevel->second->sync(buf, curTime))
+			return false;
+	}
+	return true;
+}
+
 void Index::clearOld(const ItemHeader::TTime curTime)
 {
 	AutoMutex autoSync(&_sync);
 	auto indexCopy = _index;
 	_sync.unLock();
-	for (auto topLevel = indexCopy.begin(); topLevel != indexCopy.begin(); topLevel++)
+	for (auto topLevel = indexCopy.begin(); topLevel != indexCopy.end(); topLevel++)
 		topLevel->second->clearOld(curTime);
 }
-bool Index::put(const std::string &level, const std::string &subLevel, const std::string &itemKey, TItemSharedPtr &item)
+
+bool Index::put(const std::string &level, const std::string &subLevel, const std::string &itemKey, 
+	TItemSharedPtr &item)
 {
 	AutoMutex autoSync(&_sync);
 	auto f = _index.find(level);
@@ -340,7 +440,7 @@ bool Index::remove(const std::string &level, const std::string &subLevel, const 
 	AutoMutex autoSync(&_sync);
 	auto f = _index.find(level);
 	if (f == _index.end())
-		return TItemSharedPtr();
+		return false;
 	auto topLevel = f->second;
 	autoSync.unLock();
 	return topLevel->remove(subLevel, itemKey);
@@ -364,10 +464,15 @@ bool Index::touch(const std::string &level, const std::string &subLevel, const s
 	AutoMutex autoSync(&_sync);
 	auto f = _index.find(level);
 	if (f == _index.end())
-		return TItemSharedPtr();
+		return false;
 	auto topLevel = f->second;
 	autoSync.unLock();
 	return topLevel->touch(subLevel, itemKey, setTime, curTime);
+}
+
+bool Index::load()
+{
+	return false;
 }
 
 bool Index::create(const std::string &level, const EKeyType subLevelKeyType, const EKeyType itemKeyType)

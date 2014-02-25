@@ -28,8 +28,10 @@ class TestIndexPath
 public:
 	TestIndexPath()
 	{
+		static int call = 0;
+		call++;
 		BString path;
-		path.sprintfSet("/tmp/test_nomos_index_%u", rand());
+		path.sprintfSet("/tmp/test_nomos_index_%u_%u", call, rand());
 		_path = path.c_str();
 		Directory::makeDirRecursive(_path.c_str());
 	}
@@ -55,16 +57,36 @@ BOOST_AUTO_TEST_CASE( CreateIndex )
 	TestIndexPath testPath;
 	BOOST_CHECK_NO_THROW(
 		Index index(testPath.path());
-		BOOST_CHECK(index.create("testLevel", KEY_INT8, KEY_STRING));
-		BOOST_CHECK(index.create("test,Level", KEY_INT8, KEY_STRING) == false);
-		BOOST_CHECK(index.create("09-_Level", KEY_INT8, KEY_STRING));
-		BOOST_CHECK(index.create("09-_Level", KEY_INT8, KEY_INT64) == false);
+		BOOST_CHECK(index.create("testLevel", KEY_INT32, KEY_STRING));
+		BOOST_CHECK(index.create("test,Level", KEY_INT32, KEY_STRING) == false);
+		BOOST_CHECK(index.create("09-_Level", KEY_INT32, KEY_STRING));
+		BOOST_CHECK(index.create("09-_Level", KEY_INT32, KEY_INT64) == false);
 		
 		Index indexLoad(testPath.path());
 		BOOST_CHECK(indexLoad.size() == 2);
 	);
 }
 
+
+BOOST_AUTO_TEST_CASE( ClearOld )
+{
+	TestIndexPath testPath;
+	Time curTime;
+	
+	BOOST_CHECK_NO_THROW(
+		Index index(testPath.path());
+		TItemSharedPtr item(new Item());
+		item->setLiveTo(curTime.unix() + 1, curTime.unix());
+		BOOST_CHECK(index.create("testLevel", KEY_INT32, KEY_STRING));
+		BOOST_CHECK(index.put("testLevel", "1", "testKey", item));
+		BOOST_CHECK(index.put("testLevel", "1", "testKey2", item));
+		BOOST_CHECK(index.find("testLevel", "1", "testKey", curTime.unix()).get() == item.get());
+		BOOST_CHECK(index.find("testLevel", "1", "testKey2", curTime.unix()).get() == item.get());
+		index.clearOld(curTime.unix() + 1);
+		BOOST_CHECK(index.find("testLevel", "1", "testKey", curTime.unix()).get() == NULL);
+		BOOST_CHECK(index.find("testLevel", "1", "testKey2", curTime.unix()).get() == NULL);
+	);
+}
 
 BOOST_AUTO_TEST_CASE( AddFindTouchIndex )
 {
@@ -74,7 +96,7 @@ BOOST_AUTO_TEST_CASE( AddFindTouchIndex )
 		Index index(testPath.path());
 		TItemSharedPtr item(new Item());
 		item->setLiveTo(curTime.unix(), curTime.unix());
-		BOOST_CHECK(index.create("testLevel", KEY_INT8, KEY_STRING));
+		BOOST_CHECK(index.create("testLevel", KEY_INT32, KEY_STRING));
 		BOOST_CHECK(index.put("testLevel", "1", "testKey", item));
 		BOOST_CHECK(index.find("testLevel", "1", "testKey", curTime.unix()).get() == NULL);
 		item->setLiveTo(curTime.unix() + 1, curTime.unix());
@@ -94,7 +116,7 @@ BOOST_AUTO_TEST_CASE( AddFindRemoveIndex )
 		Index index(testPath.path());
 
 		TItemSharedPtr item(new Item());
-		BOOST_CHECK(index.create("testLevel", KEY_INT8, KEY_STRING));
+		BOOST_CHECK(index.create("testLevel", KEY_INT32, KEY_STRING));
 		BOOST_CHECK(index.put("testLevel", "1", "testKey", item));
 		auto findItem = index.find("testLevel", "1", "testKey", curTime.unix());
 		BOOST_CHECK(findItem.get() != NULL);
@@ -114,6 +136,30 @@ BOOST_AUTO_TEST_CASE( AddFindRemoveIndex )
 		findItem = index.find("testLevel", "1", "testKey", curTime.unix());
 		BOOST_CHECK(findItem.get() == NULL);
 		BOOST_CHECK(index.remove("testLevel", "1", "testKey") == false);
+	);
+}
+
+BOOST_AUTO_TEST_CASE( testIndexSyncPut )
+{
+	TestIndexPath testPath;
+	Time curTime;
+	const char TEST_DATA[] = "1234567";
+	BOOST_CHECK_NO_THROW(
+		Index index(testPath.path());
+		BOOST_CHECK(index.create("testLevel", KEY_INT32, KEY_STRING));
+		
+		TItemSharedPtr item(new Item(TEST_DATA, sizeof(TEST_DATA) - 1, 0, curTime.unix()));
+		BOOST_CHECK(index.put("testLevel", "1", "testKey", item));
+		BOOST_CHECK(index.sync(curTime.unix()));
+	);
+	BOOST_CHECK_NO_THROW(
+		Index index(testPath.path());
+		BOOST_CHECK(index.load());
+	
+		auto findItem = index.find("testLevel", "1", "testKey", curTime.unix());
+		BOOST_REQUIRE(findItem.get() != NULL);
+		std::string getData((char*)findItem.get()->data(), findItem.get()->size());
+		BOOST_CHECK(getData == TEST_DATA);
 	);
 }
 
