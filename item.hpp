@@ -42,6 +42,7 @@ namespace fl {
 		public:
 			Item();
 			Item(const char *data, const ItemHeader::TSize size, const ItemHeader::TTime liveTo, const ItemHeader::TTime curTime);
+			Item(const char *data, const ItemHeader &header);
 			~Item();
 			
 			Item(const Item &item) = delete;

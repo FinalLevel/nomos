@@ -28,6 +28,7 @@
 #include "item.hpp"
 #include "exception.hpp"
 #include "bstring.hpp"
+#include "buffer.hpp"
 #include "file.hpp"
 
 
@@ -37,6 +38,7 @@ namespace fl {
 		using fl::threads::AutoMutex;
 		using fl::strings::BString;
 		using fl::fs::File;
+		using fl::utils::Buffer;
 	
 		class IndexError : public fl::exceptions::Error
 		{
@@ -62,7 +64,7 @@ namespace fl {
 				UNKNOWN = 0,
 				PUT,
 				TOUCH,
-				DELETE,
+				REMOVE,
 			};
 		};
 
@@ -71,6 +73,8 @@ namespace fl {
 		public:
 			typedef uint8_t TVersion;
 			static const TVersion CURRENT_VERSION = 1;
+			static const std::string DATA_FILE_NAME;
+			static const std::string HEADER_FILE_NAME;
 			struct MetaData
 			{
 				uint8_t version;
@@ -79,7 +83,7 @@ namespace fl {
 			};
 			static TopLevelIndex *createFromDirectory(const std::string &path);
 			static TopLevelIndex *create(const std::string &path, const EKeyType subLevelKeyType, const EKeyType itemKeyType);
-			virtual bool load(const std::string &path) = 0;
+			virtual bool load(Buffer &buf, const ItemHeader::TTime curTime) = 0;
 			virtual TItemSharedPtr find(const std::string &subLevel, const std::string &key, 
 				const ItemHeader::TTime curTime) = 0;
 			virtual void put(const std::string &subLevel, const std::string &key, TItemSharedPtr &item) = 0;
@@ -87,10 +91,12 @@ namespace fl {
 			virtual bool touch(const std::string &subLevel, const std::string &itemKey, 
 				const ItemHeader::TTime setTime, const ItemHeader::TTime curTime) = 0;
 			virtual void clearOld(const ItemHeader::TTime curTime) = 0;
-			virtual bool sync(BString &buf, const ItemHeader::TTime curTime) = 0;
+			virtual bool sync(Buffer &buf, const ItemHeader::TTime curTime) = 0;
 		protected:
 			static void _formMetaFileName(const std::string &path, BString &metaFileName);
 			static bool _createDataFile(const std::string &path, const u_int32_t curTime, const u_int32_t openNumber, 
+				const MetaData &md, File &dataFile);
+			static bool _createHeaderFile(const std::string &path, const u_int32_t curTime, const u_int32_t openNumber, 
 				const MetaData &md, File &dataFile);
 			static TopLevelIndex *_create(const std::string &path, MetaData &md);
 		};
@@ -104,7 +110,7 @@ namespace fl {
 			~Index();
 			
 			bool create(const std::string &level, const EKeyType subLevelKeyType, const EKeyType itemKeyType);
-			bool load();
+			bool load(const ItemHeader::TTime curTime);
 			
 			bool put(const std::string &level, const std::string &subLevel, const std::string &itemKey, 
 				TItemSharedPtr &item);

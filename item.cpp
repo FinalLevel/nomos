@@ -22,6 +22,17 @@ Item::Item()
 	bzero(&_header, sizeof(_header));
 }
 
+Item::Item(const char *data, const ItemHeader &header)
+	: _header(header), _data(malloc(_header.size))
+{
+	if (!_data)
+	{
+		log::Fatal::L("Can't allocate data for item\n");
+		throw std::bad_alloc();
+	}
+	memcpy(_data, data, _header.size);
+}
+
 Item::Item(const char *data, const ItemHeader::TSize size, const ItemHeader::TTime liveTo, const ItemHeader::TTime curTime)
 	: _data(malloc(size))
 {
@@ -31,6 +42,7 @@ Item::Item(const char *data, const ItemHeader::TSize size, const ItemHeader::TTi
 		throw std::bad_alloc();
 	}
 	memcpy(_data, data, size);
+	bzero(&_header, sizeof(_header));
 	_header.size = size;
 	_header.liveTo = liveTo;
 	_header.setTag(curTime);
