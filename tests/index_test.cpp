@@ -242,4 +242,38 @@ BOOST_AUTO_TEST_CASE( testIndexSyncRemove )
 	);
 }
 
+BOOST_AUTO_TEST_CASE( testIndexPack )
+{
+	TestIndexPath testPath;
+	Time curTime;
+	const char TEST_DATA[] = "1234567";	
+	BOOST_CHECK_NO_THROW(
+		Index index(testPath.path());
+		BOOST_CHECK(index.create("testLevel", KEY_INT32, KEY_STRING));
+		
+		TItemSharedPtr item(new Item(TEST_DATA, sizeof(TEST_DATA) - 1, curTime.unix() + 1, curTime.unix()));
+		BOOST_CHECK(index.put("testLevel", "1", "testKey", item));
+		BOOST_CHECK(index.sync(curTime.unix()));
+		BOOST_CHECK(index.remove("testLevel", "1", "testKey"));
+
+		TItemSharedPtr item2(new Item(TEST_DATA, sizeof(TEST_DATA) - 1, curTime.unix() + 1, curTime.unix()));
+		BOOST_CHECK(index.put("testLevel", "1", "testKey2", item2));
+		BOOST_CHECK(index.sync(curTime.unix()));
+		
+		BOOST_CHECK(index.pack(curTime.unix()));
+		BOOST_CHECK(index.pack(curTime.unix()));
+	);
+	BOOST_CHECK_NO_THROW(
+		Index index(testPath.path());
+		BOOST_CHECK(index.load(curTime.unix()));
+	
+		auto findItem = index.find("testLevel", "1", "testKey2", curTime.unix());
+		BOOST_REQUIRE(findItem.get() != NULL);
+		std::string getData((char*)findItem.get()->data(), findItem.get()->size());
+		BOOST_CHECK(getData == TEST_DATA);
+		
+		BOOST_CHECK(index.find("testLevel", "1", "testKey", curTime.unix()).get() == NULL);
+	);
+}
+
 BOOST_AUTO_TEST_SUITE_END()

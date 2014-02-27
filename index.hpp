@@ -16,13 +16,16 @@
 #ifdef _USE_BOOST
 	#include <boost/unordered_map.hpp>
 	using boost::unordered_map;
+	using boost::unordered_multimap;
 #else
 	#include <unordered_map>
 	using std::unordered_map;
+	using std::unordered_multimap;
 #endif
 
 #include <string>
 #include <memory>
+#include <vector>
 
 #include "mutex.hpp"
 #include "item.hpp"
@@ -77,10 +80,16 @@ namespace fl {
 			static const std::string HEADER_FILE_NAME;
 			struct MetaData
 			{
+				bool operator !=(const MetaData &md) const
+				{
+					return (md.subLevelKeyType != subLevelKeyType) || (md.itemKeyType != itemKeyType);
+				}
 				uint8_t version;
 				uint8_t subLevelKeyType;
 				uint8_t itemKeyType;
 			};
+			TopLevelIndex(const std::string &path, const MetaData &md);
+			
 			static TopLevelIndex *createFromDirectory(const std::string &path);
 			static TopLevelIndex *create(const std::string &path, const EKeyType subLevelKeyType, const EKeyType itemKeyType);
 			virtual bool load(Buffer &buf, const ItemHeader::TTime curTime) = 0;
@@ -92,13 +101,33 @@ namespace fl {
 				const ItemHeader::TTime setTime, const ItemHeader::TTime curTime) = 0;
 			virtual void clearOld(const ItemHeader::TTime curTime) = 0;
 			virtual bool sync(Buffer &buf, const ItemHeader::TTime curTime) = 0;
+			virtual bool pack(Buffer &buf, const ItemHeader::TTime curTime) = 0;
 		protected:
+			std::string _path;
+			MetaData _md;
+			
 			static void _formMetaFileName(const std::string &path, BString &metaFileName);
 			static bool _createDataFile(const std::string &path, const u_int32_t curTime, const u_int32_t openNumber, 
-				const MetaData &md, File &dataFile);
+				const MetaData &md, File &dataFile, BString &fileName, const char *prefix = NULL);
 			static bool _createHeaderFile(const std::string &path, const u_int32_t curTime, const u_int32_t openNumber, 
 				const MetaData &md, File &dataFile);
 			static TopLevelIndex *_create(const std::string &path, MetaData &md);
+			typedef std::vector<std::string> TPathVector;
+			static bool _unlink(const TPathVector &fileList);
+			static bool _loadFileList(const std::string &path, TPathVector &headersFileList, TPathVector &dataFileList);
+			struct HeaderCMDData
+			{
+				ItemHeader::TTime liveTo;
+				ItemHeader::UTag tag;
+			};
+			void _syncToFile(const Buffer::TSize startSavePos, const Buffer::TSize curPos, Buffer &buf, 
+				Buffer &writeBuffer, File &packedFile, TPathVector &createdFiles, const u_int32_t curTime);
+			void _syncToFile(const Buffer::TDataPtr data, const Buffer::TSize needToWrite, 
+				File &packedFile, TPathVector &createdFiles, const u_int32_t curTime);
+			void _renameTempToWork(TPathVector &fileList, const u_int32_t curTime);
+			
+			static const ItemHeader::TTime REMOVED_LIVE_TO = 1;
+	
 		};
 		typedef std::shared_ptr<TopLevelIndex> TTopLevelIndexPtr;
 		
@@ -129,6 +158,7 @@ namespace fl {
 				return _index.size();
 			}
 			bool sync(const ItemHeader::TTime curTime);
+			bool pack(const ItemHeader::TTime curTime);
 		private:
 			bool _checkLevelName(const std::string &name);
 			std::string _path;
