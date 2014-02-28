@@ -1,6 +1,7 @@
 [nomos-server]
 log=/var/log/nomos
-logLevel=0
+logLevel=4
 logStdout=on
+dataPath=/var/lib/nomos
 listen=127.0.0.1
-port=1101
+port=7007

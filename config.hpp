@@ -11,6 +11,7 @@
 // Description: Nomos server's config class
 ///////////////////////////////////////////////////////////////////////////////
 
+#include <boost/property_tree/ptree.hpp>
 
 #include <string>
 #include "socket.hpp"
@@ -26,9 +27,13 @@ namespace fl {
 		
 		const double MIN_SYNC_TOUCH_TIME_PERCENT = 0.1; // 10 percent
 		const int DEFAULT_SOCKET_TIMEOUT = 60;
+		const u_int32_t DEFAULT_CMD_PORT = 7007;
 		const size_t DEFAULT_SOCKET_QUEUE_LENGTH = 10000;
 		const size_t EPOLL_WORKER_STACK_SIZE = 100000;
 		const size_t DEFAULT_WORKERS_COUNT = 2;
+		
+		const size_t DEFAULT_BUFFER_SIZE = 32000;
+		const size_t DEFAULT_MAX_FREE_BUFFERS = 500;
 		
 		class Config
 		{
@@ -56,9 +61,9 @@ namespace fl {
 			{
 				return _cmdTimeout;
 			}
-			Socket &cmdListenSocket()
+			Socket &listenSocket()
 			{
-				return _cmdListenSocket;
+				return _listenSocket;
 			}
 			const size_t workerQueueLength() const
 			{
@@ -68,15 +73,30 @@ namespace fl {
 			{
 				return _workers;
 			}
+			const size_t bufferSize() const
+			{
+				return _bufferSize;
+			}
+			const size_t maxFreeBuffers() const
+			{
+				return _maxFreeBuffers;
+			}
+			bool initNetwork();
 		private:
+			void _parseNetworkParams(boost::property_tree::ptree &pt);
 			TStatus _status;
 			std::string _logPath;
 			int _logLevel;
 			std::string _dataPath;
+			std::string _listenIp;
+			u_int32_t _port;
 			int _cmdTimeout;
-			Socket _cmdListenSocket;
+			Socket _listenSocket;
 			size_t _workerQueueLength;
 			size_t _workers;
+			
+			size_t _bufferSize;
+			size_t _maxFreeBuffers;
 		};
 	};
 };

@@ -35,21 +35,28 @@ int main(int argc, char *argv[])
 		config.reset(new Config(argc, argv));
 		if (!log::NomosLogSystem::init(config.get()))
 			return -1;
+		
+		log::Warning::L("Starting Nomos Storage server\n");
+		if (!config->initNetwork())
+			return -1;
 
 		NomosEventFactory *factory = new NomosEventFactory(config.get());
-		NomosThreadSpecificDataFactory *dataFactory = new NomosThreadSpecificDataFactory();
-		workerGroup.reset(new EPollWorkerGroup(dataFactory, config->workers(), config->workerQueueLength(), EPOLL_WORKER_STACK_SIZE));
-		AcceptThread cmdThread(workerGroup.get(), &config->cmdListenSocket(), factory);
+		NomosThreadSpecificDataFactory *dataFactory = new NomosThreadSpecificDataFactory(config.get());
+		workerGroup.reset(new EPollWorkerGroup(dataFactory, config->workers(), config->workerQueueLength(), 
+			EPOLL_WORKER_STACK_SIZE));
+		AcceptThread cmdThread(workerGroup.get(), &config->listenSocket(), factory);
 		
 		index.reset(new Index(config->dataPath()));
 		Time curTime;
 		if (!index->load(curTime.unix()))
 			return -1;
+		
+		NomosEvent::setInited();
+		workerGroup->waitThreads();
 	}
 	catch (...)	
 	{
 		return -1;
 	}
-	log::Info::L("Starting Nomos Storage server\n");
 	return 0;
 };
