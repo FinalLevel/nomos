@@ -71,10 +71,10 @@ bool TopLevelIndex::_createHeaderFile(const std::string &path, const u_int32_t c
 void TopLevelIndex::_renameTempToWork(TPathVector &fileList, const u_int32_t curTime)
 {
 	BString toFileName;
-	int i = 0;
+	static u_int32_t opNumber = 0;
 	for (auto file = fileList.begin(); file != fileList.end(); file++) {
-		i++;
-		toFileName.sprintfSet("%s/%s_%u_%u_pack", _path.c_str(), DATA_FILE_NAME.c_str(), curTime, i);
+		toFileName.sprintfSet("%s/%s_%u_%u_pack", _path.c_str(), DATA_FILE_NAME.c_str(), curTime, 
+			__sync_add_and_fetch(&opNumber, 1));
 		if (fileExists(toFileName.c_str())) {
 			log::Fatal::L("TopLevelIndex packed data file already exists %s\n", toFileName.c_str());
 			throw std::exception();
@@ -286,6 +286,7 @@ public:
 			headerPacket.subLevelKey = dataPacket.subLevelKey;
 			headerPacket.itemKey = dataPacket.itemKey;
 			headerPacket.itemHeader = oldItem->header();
+			_headerPackets.push_back(headerPacket);
 		}
 		_packetSync.unLock();
 	}

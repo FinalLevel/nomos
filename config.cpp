@@ -17,7 +17,7 @@ using namespace fl::nomos;
 using namespace boost::property_tree::ini_parser;
 
 Config::Config(int argc, char *argv[])
-	: _status(0), _logLevel(FL_LOG_LEVEL)
+	: _status(0), _logLevel(FL_LOG_LEVEL), _cmdTimeout(0), _workerQueueLength(0), _workers(0)
 {
 	std::string configFileName(DEFAULT_CONFIG);
 	char ch;
@@ -37,6 +37,16 @@ Config::Config(int argc, char *argv[])
 		_logLevel = pt.get<decltype(_logLevel)>("nomos-server.logLevel", _logLevel);
 		if (pt.get<std::string>("nomos-server.logStdout", "") == "on")
 			_status |= ST_LOG_STDOUT;
+		_dataPath = pt.get<decltype(_dataPath)>("nomos-server.dataPath", "");
+		if (_dataPath.empty())
+		{
+			printf("Nomos dataPath is not set\n");
+			throw std::exception();
+		}
+		_cmdTimeout =  pt.get<decltype(_cmdTimeout)>("nomos-server.cmdTimeout", DEFAULT_SOCKET_TIMEOUT);
+		_workerQueueLength = pt.get<decltype(_workerQueueLength)>("nomos-server.socketQueueLength", 
+			DEFAULT_SOCKET_QUEUE_LENGTH);
+		_workers = pt.get<decltype(_workers)>("nomos-server.workers", DEFAULT_WORKERS_COUNT);
 	}
 	catch (ini_parser_error &err)
 	{

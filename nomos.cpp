@@ -14,18 +14,36 @@
 #include "socket.hpp"
 #include "config.hpp"
 #include "nomos_log.hpp"
+#include "index.hpp"
+#include "time.hpp"
+#include "accept_thread.hpp"
+#include "nomos_event.hpp"
 
 
 using fl::network::Socket;
+using fl::chrono::Time;
 using namespace fl::nomos;
+using namespace fl::events;
 
 int main(int argc, char *argv[])
 {
 	std::unique_ptr<Config> config;
+	std::unique_ptr<Index> index;
+	std::unique_ptr<EPollWorkerGroup> workerGroup;
 	try
 	{
 		config.reset(new Config(argc, argv));
 		if (!log::NomosLogSystem::init(config.get()))
+			return -1;
+
+		NomosEventFactory *factory = new NomosEventFactory(config.get());
+		NomosThreadSpecificDataFactory *dataFactory = new NomosThreadSpecificDataFactory();
+		workerGroup.reset(new EPollWorkerGroup(dataFactory, config->workers(), config->workerQueueLength(), EPOLL_WORKER_STACK_SIZE));
+		AcceptThread cmdThread(workerGroup.get(), &config->cmdListenSocket(), factory);
+		
+		index.reset(new Index(config->dataPath()));
+		Time curTime;
+		if (!index->load(curTime.unix()))
 			return -1;
 	}
 	catch (...)	

@@ -45,6 +45,20 @@ public:
 	{
 		return _path.c_str();
 	}
+	const int countFiles(const char *subdir)
+	{
+		BString path;
+		path.sprintfSet("%s/%s", _path.c_str(), subdir);
+		int count = 0;
+		Directory dir(path.c_str());
+		while (dir.next())
+		{
+			if (dir.isDirectory())
+				continue;
+			count++;
+		}
+		return count;
+	}
 private:
 	std::string _path;
 };
@@ -247,7 +261,9 @@ BOOST_AUTO_TEST_CASE( testIndexPack )
 	TestIndexPath testPath;
 	Time curTime;
 	const char TEST_DATA[] = "1234567";	
-	BOOST_CHECK_NO_THROW(
+	const char TEST_DATA2[] = "blab";	
+	try
+	{
 		Index index(testPath.path());
 		BOOST_CHECK(index.create("testLevel", KEY_INT32, KEY_STRING));
 		
@@ -261,8 +277,20 @@ BOOST_AUTO_TEST_CASE( testIndexPack )
 		BOOST_CHECK(index.sync(curTime.unix()));
 		
 		BOOST_CHECK(index.pack(curTime.unix()));
+		// check data rewrite in repack
+		TItemSharedPtr item3(new Item(TEST_DATA2, sizeof(TEST_DATA2) - 1, curTime.unix() + 1, curTime.unix()));
+		BOOST_CHECK(index.put("testLevel", "1", "testKey3", item2));
+		BOOST_CHECK(index.put("testLevel", "1", "testKey3", item3));
+		BOOST_CHECK(index.sync(curTime.unix()));
 		BOOST_CHECK(index.pack(curTime.unix()));
-	);
+		
+		BOOST_CHECK(testPath.countFiles("testLevel") == 3);
+	}
+	catch (...)
+	{
+		BOOST_CHECK_NO_THROW(throw);
+	}
+	
 	BOOST_CHECK_NO_THROW(
 		Index index(testPath.path());
 		BOOST_CHECK(index.load(curTime.unix()));
@@ -271,6 +299,11 @@ BOOST_AUTO_TEST_CASE( testIndexPack )
 		BOOST_REQUIRE(findItem.get() != NULL);
 		std::string getData((char*)findItem.get()->data(), findItem.get()->size());
 		BOOST_CHECK(getData == TEST_DATA);
+		
+		findItem = index.find("testLevel", "1", "testKey3", curTime.unix());
+		BOOST_REQUIRE(findItem.get() != NULL);
+		getData.assign((char*)findItem.get()->data(), findItem.get()->size());
+		BOOST_CHECK(getData == TEST_DATA2);
 		
 		BOOST_CHECK(index.find("testLevel", "1", "testKey", curTime.unix()).get() == NULL);
 	);
