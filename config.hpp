@@ -15,6 +15,7 @@
 
 #include <string>
 #include "socket.hpp"
+#include "types.hpp"
 
 namespace fl {
 	namespace nomos {
@@ -26,6 +27,7 @@ namespace fl {
 		const size_t MAX_FILE_SIZE = 64 * 1024 * 1024; // 100Mb
 		
 		const double MIN_SYNC_TOUCH_TIME_PERCENT = 0.1; // 10 percent
+		const int MIN_SYNC_PUT_UPDATE_TIME = 5 * 60; // 5 minutes
 		const int DEFAULT_SOCKET_TIMEOUT = 60;
 		const u_int32_t DEFAULT_CMD_PORT = 7007;
 		const size_t DEFAULT_SOCKET_QUEUE_LENGTH = 10000;
@@ -49,9 +51,14 @@ namespace fl {
 			}
 			typedef uint32_t TStatus;
 			static const TStatus ST_LOG_STDOUT = 0x1;
+			static const TStatus ST_AUTO_CREATE_TOP_LEVEL = 0x2;
 			const bool isLogStdout() const
 			{
 				return _status & ST_LOG_STDOUT;
+			}
+			const bool isAutoCreate() const
+			{
+				return _status & ST_AUTO_CREATE_TOP_LEVEL;
 			}
 			const std::string &dataPath() const
 			{
@@ -82,8 +89,17 @@ namespace fl {
 				return _maxFreeBuffers;
 			}
 			bool initNetwork();
+			EKeyType defaultSublevelKeyType() const
+			{
+				return _defaultSublevelKeyType;
+			}
+			EKeyType defaultItemKeyType() const
+			{
+				return _defaultItemKeyType;
+			}
 		private:
 			void _parseNetworkParams(boost::property_tree::ptree &pt);
+			void _parseIndexParams(boost::property_tree::ptree &pt);
 			TStatus _status;
 			std::string _logPath;
 			int _logLevel;
@@ -97,6 +113,9 @@ namespace fl {
 			
 			size_t _bufferSize;
 			size_t _maxFreeBuffers;
+			
+			EKeyType _defaultSublevelKeyType;
+			EKeyType _defaultItemKeyType;
 		};
 	};
 };

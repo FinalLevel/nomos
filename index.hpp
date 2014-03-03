@@ -33,6 +33,9 @@
 #include "bstring.hpp"
 #include "buffer.hpp"
 #include "file.hpp"
+#include "types.hpp"
+#include "time_thread.hpp"
+#include "cond_mutex.hpp"
 
 
 namespace fl {
@@ -50,14 +53,6 @@ namespace fl {
 				: Error(what)
 			{
 			}
-		};
-		
-		enum EKeyType
-		{
-			KEY_STRING,
-			KEY_INT32,
-			KEY_INT64,
-			KEY_MAX_TYPE = KEY_INT64 // should always be equal max key type
 		};
 		
 		namespace EIndexCMDType
@@ -94,8 +89,9 @@ namespace fl {
 			static TopLevelIndex *create(const std::string &path, const EKeyType subLevelKeyType, const EKeyType itemKeyType);
 			virtual bool load(Buffer &buf, const ItemHeader::TTime curTime) = 0;
 			virtual TItemSharedPtr find(const std::string &subLevel, const std::string &key, 
-				const ItemHeader::TTime curTime) = 0;
-			virtual void put(const std::string &subLevel, const std::string &key, TItemSharedPtr &item) = 0;
+				const ItemHeader::TTime curTime, const ItemHeader::TTime lifeTime) = 0;
+			virtual void put(const std::string &subLevel, const std::string &key, TItemSharedPtr &item, 
+				bool checkBeforeReplace) = 0;
 			virtual bool remove(const std::string &subLevel, const std::string &itemKey) = 0;
 			virtual bool touch(const std::string &subLevel, const std::string &itemKey, 
 				const ItemHeader::TTime setTime, const ItemHeader::TTime curTime) = 0;
@@ -130,21 +126,38 @@ namespace fl {
 	
 		};
 		typedef std::shared_ptr<TopLevelIndex> TTopLevelIndexPtr;
-		
 
+		class IndexSyncThread : public fl::threads::Thread
+		{
+		public:
+			IndexSyncThread();
+			virtual ~IndexSyncThread() {}
+		private:
+			virtual void run();
+			fl::threads::CondMutex _cond;
+			Mutex _sync;
+			typedef std::vector<TTopLevelIndexPtr> TTopLevelVector;
+			TTopLevelVector _needSyncLevels;
+		};
+		
 		class Index
 		{
 		public:
 			Index(const std::string &path);
 			~Index();
+			void setAutoCreate(const bool ison, const EKeyType defaultSublevelType, const EKeyType defaultItemKeyType);
+			void startThreads();
+			bool hour(fl::chrono::ETime &curTime);
 			
 			bool create(const std::string &level, const EKeyType subLevelKeyType, const EKeyType itemKeyType);
 			bool load(const ItemHeader::TTime curTime);
 			
+			static const bool CHECK_EXISTS = true;
+			static const bool NOT_CHECK_EXISTS = false;
 			bool put(const std::string &level, const std::string &subLevel, const std::string &itemKey, 
-				TItemSharedPtr &item);
+				TItemSharedPtr &item, bool checkBeforeReplace = NOT_CHECK_EXISTS);
 			TItemSharedPtr find(const std::string &level, const std::string &subLevel, const std::string &itemKey, 
-				const ItemHeader::TTime curTime);
+				const ItemHeader::TTime curTime, const ItemHeader::TTime lifeTime = 0);
 			bool touch(const std::string &level, const std::string &subLevel, const std::string &itemKey, 
 				const ItemHeader::TTime setTime, const ItemHeader::TTime curTime);
 			bool remove(const std::string &level, const std::string &subLevel, const std::string &itemKey);
@@ -159,14 +172,32 @@ namespace fl {
 			}
 			bool sync(const ItemHeader::TTime curTime);
 			bool pack(const ItemHeader::TTime curTime);
+			
+			static EKeyType stringToType(const std::string &type);
+			class ConvertError : public fl::exceptions::Error 
+			{
+			public:
+				ConvertError(const char *what);
+				ConvertError(ConvertError &&ce);
+				virtual ~ConvertError() throw() {};
+			private:
+				BString _buf;
+			};
 		private:
 			bool _checkLevelName(const std::string &name);
 			std::string _path;
+			typedef uint8_t TStatus;
+			TStatus _status;
+			static const TStatus ST_AUTO_CREATE = 0x1;
+			EKeyType _subLevelKeyType;
+			EKeyType _itemKeyType;
 			
 			typedef std::string TTopLevelKey;
 			typedef unordered_map<TTopLevelKey, TTopLevelIndexPtr> TTopLevelIndex;
 			TTopLevelIndex _index;
 			Mutex _sync;
+			
+			fl::threads::TimeThread _timeThread;
 		};
 	};
 };

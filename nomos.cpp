@@ -50,8 +50,10 @@ int main(int argc, char *argv[])
 		Time curTime;
 		if (!index->load(curTime.unix()))
 			return -1;
+		index->setAutoCreate(config->isAutoCreate(), config->defaultSublevelKeyType(), config->defaultItemKeyType());
+		index->startThreads();
 		
-		NomosEvent::setInited();
+		NomosEvent::setInited(index.get());
 		workerGroup->waitThreads();
 	}
 	catch (...)	

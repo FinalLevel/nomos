@@ -13,6 +13,13 @@
 
 namespace fl {
 	namespace nomos {
+		enum EKeyType : uint8_t
+		{
+			KEY_STRING,
+			KEY_INT32,
+			KEY_INT64,
+			KEY_MAX_TYPE = KEY_INT64 // should always be equal max key type
+		};
 	};
 };
 

@@ -5,3 +5,9 @@ logStdout=on
 dataPath=/var/lib/nomos
 listen=127.0.0.1
 port=7007
+
+; create new top level when a put command comes
+autoCreateTopIndex=off
+; Types can be INT32, INT64 or STRING
+defaultSublevelKeyType=INT32
+defaultItemKeyType=INT64

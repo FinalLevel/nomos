@@ -13,6 +13,7 @@
 #include "nomos_log.hpp"
 #include "file.hpp"
 #include "util.hpp"
+#include "cond_mutex.hpp"
 
 
 using namespace fl::nomos;
@@ -205,27 +206,33 @@ public:
 	}
 	
 	virtual TItemSharedPtr find(const std::string &subLevelKeyStr, const std::string &key, 
-		const ItemHeader::TTime curTime) 
+		const ItemHeader::TTime curTime, const ItemHeader::TTime lifeTime) 
 	{
-		const TSubLevelKey subLevelKey = convertStdStringTo<TSubLevelKey>(subLevelKeyStr.c_str());
-		const TItemKey itemKey = convertStdStringTo<TItemKey>(key.c_str());
+		HeaderPacket headerPacket;
+		headerPacket.cmd = EIndexCMDType::TOUCH;
+		headerPacket.subLevelKey = convertStdStringTo<TSubLevelKey>(subLevelKeyStr.c_str());
+		headerPacket.itemKey = convertStdStringTo<TItemKey>(key.c_str());
 		
 		AutoMutex autoSync(&_sync);
-		auto subLevel = _subLevelItem.find(subLevelKey);
+		auto subLevel = _subLevelItem.find(headerPacket.subLevelKey);
 		if (subLevel == _subLevelItem.end())
 			return TItemSharedPtr();
-		auto sliceID = _findSlice(itemKey);
-		auto item = subLevel->second[sliceID].find(itemKey);
+		auto sliceID = _findSlice(headerPacket.itemKey);
+		auto item = subLevel->second[sliceID].find(headerPacket.itemKey);
 		if (item == subLevel->second[sliceID].end())
 			return TItemSharedPtr();
 		else if (item->second->isValid(curTime))
+		{
+			if (lifeTime) 
+				_touch(headerPacket, item->second.get(), lifeTime, curTime);
 			return item->second;
+		}
 		else {
 			subLevel->second[sliceID].erase(item);
 			return TItemSharedPtr();
 		}
 	}
-
+	
 	virtual bool touch(const std::string &subLevelKeyStr, const std::string &key, 
 		const ItemHeader::TTime setTime, const ItemHeader::TTime curTime)
 	{
@@ -244,21 +251,7 @@ public:
 		if (item == subLevel->second[sliceID].end())
 			return false;
 		else if (item->second->isValid(curTime)) {
-			const ItemHeader &itemHeader = item->second->header();
-			ItemHeader::TTime lastLiveTo = itemHeader.liveTo;
-			if (setTime == 0)
-				item->second->setLiveTo(setTime, curTime);
-			else
-				item->second->setLiveTo(setTime + curTime, curTime);
-			
-			if (abs(lastLiveTo - itemHeader.liveTo) > (setTime * MIN_SYNC_TOUCH_TIME_PERCENT))
-			{
-				headerPacket.itemHeader = itemHeader;
-				autoSync.unLock();
-				_packetSync.lock();
-				_headerPackets.push_back(headerPacket);
-				_packetSync.unLock();
-			}
+			_touch(headerPacket, item->second.get(), setTime, curTime);
 			return true;
 		}	else {
 			subLevel->second[sliceID].erase(item);
@@ -266,29 +259,46 @@ public:
 		}
 	}
 	
-	virtual void put(const std::string &subLevel, const std::string &key, TItemSharedPtr &item)
+	virtual void put(const std::string &subLevel, const std::string &key, TItemSharedPtr &item, bool checkBeforeReplace)
 	{
 		DataPacket dataPacket;
 		dataPacket.subLevelKey = convertStdStringTo<TSubLevelKey>(subLevel);
 		dataPacket.itemKey = convertStdStringTo<TItemKey>(key);
 		dataPacket.item = item;
 		
+		TItemSharedPtr oldItem;
 		AutoMutex autoSync(&_sync);
-		TItemSharedPtr oldItem = _put(dataPacket.subLevelKey, dataPacket.itemKey, item);
-		_sync.unLock();
-		
-		_packetSync.lock();
-		_dataPackets.push_back(dataPacket);
-		if (oldItem.get() != NULL) // mark old item as removed 
-		{
-			HeaderPacket headerPacket;
-			headerPacket.cmd = EIndexCMDType::REMOVE;
-			headerPacket.subLevelKey = dataPacket.subLevelKey;
-			headerPacket.itemKey = dataPacket.itemKey;
-			headerPacket.itemHeader = oldItem->header();
-			_headerPackets.push_back(headerPacket);
+		bool changed = _put(dataPacket.subLevelKey, dataPacket.itemKey, item, oldItem, checkBeforeReplace);
+		if (changed) {
+			autoSync.unLock();
+			_packetSync.lock();
+			_dataPackets.push_back(dataPacket);
+			if (oldItem.get() != NULL) {// mark old item as removed 
+				HeaderPacket headerPacket;
+				headerPacket.cmd = EIndexCMDType::REMOVE;
+				headerPacket.subLevelKey = dataPacket.subLevelKey;
+				headerPacket.itemKey = dataPacket.itemKey;
+				headerPacket.itemHeader = oldItem->header();
+				_headerPackets.push_back(headerPacket);
+			}
+			_packetSync.unLock();
+		} else {
+			auto timeChange = abs(item->header().liveTo - oldItem->header().liveTo);
+			if (timeChange > MIN_SYNC_PUT_UPDATE_TIME) {
+				oldItem->setHeader(item->header());
+				autoSync.unLock();
+				
+				HeaderPacket headerPacket;
+				headerPacket.cmd = EIndexCMDType::TOUCH;
+				headerPacket.subLevelKey = dataPacket.subLevelKey;
+				headerPacket.itemKey = dataPacket.itemKey;
+				headerPacket.itemHeader = item->header();
+				
+				_packetSync.lock();
+				_headerPackets.push_back(headerPacket);
+				_packetSync.unLock();
+			}
 		}
-		_packetSync.unLock();
 	}
 	
 	virtual bool sync(Buffer &buf, const ItemHeader::TTime curTime)
@@ -443,20 +453,23 @@ private:
 	{
 		return getCheckSum32Tmpl<TItemKey>(itemKey) % _slicesCount;
 	}
-	TItemSharedPtr _put(const TSubLevelKey &subLevelKey, const TItemKey &itemKey, TItemSharedPtr &item)
+	
+	bool _put(const TSubLevelKey &subLevelKey, const TItemKey &itemKey, TItemSharedPtr &item, 
+		TItemSharedPtr &oldItem, const bool checkBeforeReplace)
 	{
 		static TItemIndexVector startIndexSlices(_slicesCount);
 		auto res = _subLevelItem.emplace(subLevelKey, startIndexSlices);
 		auto sliceID = _findSlice(itemKey);
 		auto itemRes = res.first->second[sliceID].emplace(itemKey, item);
 		
-		TItemSharedPtr oldItem;
-		if (!itemRes.second)
-		{
+		if (!itemRes.second) {
 			oldItem = itemRes.first->second;
+			if (checkBeforeReplace && itemRes.first->second->equal(item.get()))	{
+				return false;
+			}
 			itemRes.first->second = item;
 		}
-		return oldItem;
+		return true;
 	}
 	
 	void _put(const TSubLevelKey &subLevelKey, const TItemKey &itemKey, const ItemHeader &itemHeader, const char *data)
@@ -466,8 +479,7 @@ private:
 		auto res = _subLevelItem.emplace(subLevelKey, startIndexSlices);
 		auto sliceID = _findSlice(itemKey);
 		auto itemRes = res.first->second[sliceID].emplace(itemKey, empty);
-		if (!itemRes.second)
-		{
+		if (!itemRes.second) {
 			if (itemRes.first->second->header().timeTag.tag >= itemHeader.timeTag.tag) // skip old data
 				return;
 		}
@@ -495,7 +507,26 @@ private:
 	
 	typedef std::vector<HeaderPacket> THeaderPacketVector;
 	THeaderPacketVector _headerPackets;
-
+	
+	void _touch(HeaderPacket &headerPacket, Item *item, const ItemHeader::TTime setTime, 
+		const ItemHeader::TTime curTime)
+	{
+		ItemHeader::TTime liveTo = setTime;
+		if (liveTo)
+			liveTo += curTime;
+		
+		const ItemHeader &itemHeader = item->header();
+		if (abs(liveTo - itemHeader.liveTo) > (setTime * MIN_SYNC_TOUCH_TIME_PERCENT))
+		{
+			item->setLiveTo(liveTo, curTime);
+			headerPacket.itemHeader = itemHeader;
+			
+			_packetSync.lock();
+			_headerPackets.push_back(headerPacket);
+			_packetSync.unLock();
+		}
+	}
+	
 	
 	Mutex _diskLock;
 	File _dataFile;
@@ -938,7 +969,8 @@ TopLevelIndex *TopLevelIndex::create(
 }
 
 Index::Index(const std::string &path)
-	: _path(path)
+	: _path(path), _status(0), _subLevelKeyType(KEY_INT32), _itemKeyType(KEY_INT64), 
+	_timeThread(5 * 60) // minutes tic time
 {
 	Directory dir(path.c_str());
 	BString topLevelPath;
@@ -958,6 +990,16 @@ Index::Index(const std::string &path)
 
 Index::~Index()
 {
+}
+
+void Index::setAutoCreate(const bool ison, const EKeyType defaultSublevelType, const EKeyType defaultItemKeyType)
+{
+	if (ison)
+		_status |= ST_AUTO_CREATE;
+	else
+		_status &= (~ST_AUTO_CREATE);
+	_subLevelKeyType = defaultSublevelType;
+	_itemKeyType = defaultItemKeyType;
 }
 
 bool Index::_checkLevelName(const std::string &name)
@@ -1015,15 +1057,25 @@ void Index::clearOld(const ItemHeader::TTime curTime)
 }
 
 bool Index::put(const std::string &level, const std::string &subLevel, const std::string &itemKey, 
-	TItemSharedPtr &item)
+	TItemSharedPtr &item, bool checkBeforeReplace)
 {
 	AutoMutex autoSync(&_sync);
 	auto f = _index.find(level);
-	if (f == _index.end())
-		return false;
+	if (f == _index.end()) {
+		if (_status & ST_AUTO_CREATE)	{
+			autoSync.unLock();
+			if (create(level, _subLevelKeyType, _itemKeyType)) {
+				return put(level, subLevel, itemKey, item, checkBeforeReplace);
+			}
+			else
+				return false;
+		}
+		else
+			return false;
+	}
 	auto topLevel = f->second;
 	autoSync.unLock();
-	topLevel->put(subLevel, itemKey, item);
+	topLevel->put(subLevel, itemKey, item, checkBeforeReplace);
 	return true;
 }
 
@@ -1039,7 +1091,7 @@ bool Index::remove(const std::string &level, const std::string &subLevel, const 
 }
 
 TItemSharedPtr Index::find(const std::string &level, const std::string &subLevel, const std::string &itemKey, 
-	const ItemHeader::TTime curTime)
+	const ItemHeader::TTime curTime, const ItemHeader::TTime lifeTime)
 {
 	AutoMutex autoSync(&_sync);
 	auto f = _index.find(level);
@@ -1047,7 +1099,7 @@ TItemSharedPtr Index::find(const std::string &level, const std::string &subLevel
 		return TItemSharedPtr();
 	auto topLevel = f->second;
 	autoSync.unLock();
-	return topLevel->find(subLevel, itemKey, curTime);
+	return topLevel->find(subLevel, itemKey, curTime, lifeTime);
 }
 
 bool Index::touch(const std::string &level, const std::string &subLevel, const std::string &itemKey, 
@@ -1071,6 +1123,36 @@ bool Index::load(const ItemHeader::TTime curTime)
 			return false;
 	}
 	return true;
+}
+
+Index::ConvertError::ConvertError(const char *what)
+	: fl::exceptions::Error(_buf.c_str())
+{
+	_buf.sprintfSet("Unknown index type %s\n", what);
+	_what = _buf.c_str();
+}
+
+Index::ConvertError::ConvertError(ConvertError &&ce)
+	: Error(NULL), _buf(std::move(ce._buf))
+{
+	_what = _buf.c_str();
+}
+
+
+EKeyType Index::stringToType(const std::string &type)
+{
+	static const char * KEY_TYPES[KEY_MAX_TYPE + 1] = {
+		"STRING",
+		"INT32",
+		"INT64",
+	};
+	for (int i = 0; i <= KEY_MAX_TYPE; i++) {
+		if (!strcasecmp(type.c_str(), KEY_TYPES[i])) {
+			return (EKeyType)i;
+		}
+	}
+	log::Error::L("Cannot find type %s\n", type.c_str());
+	throw ConvertError(type.c_str());
 }
 
 bool Index::create(const std::string &level, const EKeyType subLevelKeyType, const EKeyType itemKeyType)
@@ -1098,4 +1180,52 @@ bool Index::create(const std::string &level, const EKeyType subLevelKeyType, con
 	}
 	_index.emplace(level, TTopLevelIndexPtr(topLevelIndex));
 	return true;
+}
+
+bool Index::hour(fl::chrono::ETime &curTime)
+{
+	log::Info::L("Hourly routines started\n");
+	clearOld(curTime.unix());
+	pack(curTime.unix());
+	log::Info::L("Hourly routines ended\n");
+	return true;
+}
+
+void Index::startThreads()
+{
+	_timeThread.addEveryHour(new fl::threads::TimeTask<Index>(this, &Index::hour));
+	if (!_timeThread.create())
+		throw std::exception();
+}
+
+IndexSyncThread::IndexSyncThread()
+{
+	static const uint32_t SYNC_THREAD_STACK_SIZE = 100000;
+	setStackSize(SYNC_THREAD_STACK_SIZE);
+}
+
+void IndexSyncThread::run()
+{
+	fl::chrono::Time curTime;
+	Buffer buf(MAX_BUF_SIZE + 1);
+	while (true)
+	{
+		TTopLevelVector workItems;
+		_sync.lock();
+		std::swap(_needSyncLevels, workItems);
+		_sync.unLock();
+		if (workItems.empty())
+		{
+			_cond.waitSignal();
+			continue;
+		}
+		curTime.update();
+		for (auto level = workItems.begin(); level != workItems.end(); level++) {
+			if (!(*level)->sync(buf, curTime.unix()))	{
+				_sync.lock();
+				_needSyncLevels.push_back(*level);
+				_sync.unLock();
+			}
+		}
+	}
 }

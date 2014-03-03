@@ -83,6 +83,11 @@ namespace fl {
 			{
 				return _header.size;
 			}
+			const bool equal(Item *item) const;
+			void setHeader(const ItemHeader &header)
+			{
+				_header = header;
+			}
 		private:
 			ItemHeader _header;
 			TMemPtr _data;

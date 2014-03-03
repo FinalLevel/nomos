@@ -26,11 +26,13 @@ namespace fl {
 			enum ENomosState : u_int8_t
 			{
 				ER_PARSE = 1,
-				ER_NOT_READY,			
+				ER_CRITICAL, 
+				ER_PUT,
+				ER_NOT_FOUND,
+				ER_NOT_READY,
 				ER_UNKNOWN,
 				ST_WAIT_QUERY,
 				ST_WAIT_DATA,
-				ST_FORM_ANSWER,
 				ST_SEND,
 				ST_SEND_AND_CLOSE,
 				ST_FINISHED
@@ -39,23 +41,35 @@ namespace fl {
 			{
 				CMD_GET = 'G',
 				CMD_PUT = 'P',
+				CMD_UPDATE = 'U', // check original before rewriting
 				CMD_TOUCH = 'T',
+				CMD_REMOVE = 'R',
+				CMD_CREATE = 'C',
 			};
 
 			NomosEvent(const TEventDescriptor descr, const time_t timeOutTime);
 			virtual ~NomosEvent();
 			virtual const ECallResult call(const TEvents events);
-			static void setInited(const bool inited = true);
+			static void setInited(class Index *index);
 			static void setConfig(Config *config);
 		private:
 			static Config *_config;
+			static class Index *_index;
 			void _endWork();
 			bool _reset();
 			bool _readQuery();
 			bool _readQueryData();
-			bool _formAnswer();
 			bool _parseQuery();
+			
+			bool _parseCreateQuery(NetworkBuffer::TDataPtr &query);
 			bool _parsePutQuery(NetworkBuffer::TDataPtr &query);
+			bool _parseGetQuery(NetworkBuffer::TDataPtr &query);
+			bool _parseTouchQuery(NetworkBuffer::TDataPtr &query);
+			bool _parseRemoveQuery(NetworkBuffer::TDataPtr &query);
+			
+			bool _formPutAnswer();
+			
+			void _formOkAnswer(const uint32_t size);
 			void _setWaitRead();
 			void _setWaitSend();
 			
@@ -66,11 +80,15 @@ namespace fl {
 			ENomosState _curState;
 			ENomosCMD _cmd;
 			uint16_t _querySize;
-			std::string _level;
-			std::string _subLevel;
-			std::string _itemKey;
-			time_t _lifeTime;
-			uint32_t _itemSize;
+			struct DataQuery
+			{
+				std::string level;
+				std::string subLevel;
+				std::string itemKey;
+				time_t lifeTime;
+				uint32_t itemSize;
+			};
+			DataQuery *_dataQuery;
 		};
 		
 		

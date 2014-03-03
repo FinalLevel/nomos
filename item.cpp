@@ -60,3 +60,10 @@ void ItemHeader::setTag(const TTime curTime)
 	timeTag._opNumber = __sync_add_and_fetch(&opNumber, 1);
 }
 
+const bool Item::equal(Item *item) const
+{
+	if (_header.size != item->_header.size)
+		return false;
+	return (memcmp(_data, item->_data, _header.size) == 0);
+}
+

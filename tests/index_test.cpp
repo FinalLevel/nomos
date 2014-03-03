@@ -76,8 +76,12 @@ BOOST_AUTO_TEST_CASE( CreateIndex )
 		BOOST_CHECK(index.create("09-_Level", KEY_INT32, KEY_STRING));
 		BOOST_CHECK(index.create("09-_Level", KEY_INT32, KEY_INT64) == false);
 		
+		BOOST_CHECK(index.create("testLevel2", Index::stringToType("INT32"), Index::stringToType("INT64")));
+		
+		BOOST_CHECK_THROW(Index::stringToType("UNKNOWN"), std::exception);
+		
 		Index indexLoad(testPath.path());
-		BOOST_CHECK(indexLoad.size() == 2);
+		BOOST_CHECK(indexLoad.size() == 3);
 	);
 }
 
@@ -193,6 +197,46 @@ BOOST_AUTO_TEST_CASE( testIndexSyncPut )
 	);
 }
 
+BOOST_AUTO_TEST_CASE( testIndexSyncPutWithCheck )
+{
+	TestIndexPath testPath;
+	Time curTime;
+	const char TEST_DATA[] = "1234567";
+	TItemSharedPtr item(new Item(TEST_DATA, sizeof(TEST_DATA) - 1, curTime.unix() + 10, curTime.unix()));
+	const ItemHeader &itemHeader = item->header();
+	
+	TItemSharedPtr item2(new Item(TEST_DATA, sizeof(TEST_DATA) - 1, curTime.unix() + 1, curTime.unix()));
+	const ItemHeader &itemHeader2 = item2->header();
+	
+	BOOST_CHECK_NO_THROW(
+		Index index(testPath.path());
+		BOOST_CHECK(index.create("testLevel", KEY_INT32, KEY_STRING));
+
+		
+		
+		BOOST_CHECK(index.put("testLevel", "1", "testKey", item));
+		BOOST_CHECK(index.put("testLevel", "1", "testKey", item2, Index::CHECK_EXISTS)); // put with check
+
+		BOOST_CHECK(index.put("testLevel", "1", "testKey2", item));
+		BOOST_CHECK(index.put("testLevel", "1", "testKey2", item2, Index::NOT_CHECK_EXISTS)); // put with check
+
+		BOOST_CHECK(index.sync(curTime.unix()));
+	);
+	BOOST_CHECK_NO_THROW(
+		Index index(testPath.path());
+		BOOST_CHECK(index.load(curTime.unix()));
+	
+		auto findItem = index.find("testLevel", "1", "testKey", curTime.unix());
+		BOOST_REQUIRE(findItem.get() != NULL);
+		BOOST_CHECK(findItem->header().timeTag.tag ==  itemHeader.timeTag.tag);
+		
+		findItem = index.find("testLevel", "1", "testKey2", curTime.unix());
+		BOOST_REQUIRE(findItem.get() != NULL);
+		BOOST_CHECK(findItem->header().timeTag.tag ==  itemHeader2.timeTag.tag);
+		BOOST_CHECK(findItem->header().timeTag.tag !=  itemHeader.timeTag.tag);
+	);
+}
+
 BOOST_AUTO_TEST_CASE( testIndexSyncTouch )
 {
 	TestIndexPath testPath;
@@ -211,6 +255,12 @@ BOOST_AUTO_TEST_CASE( testIndexSyncTouch )
 		TItemSharedPtr item2(new Item(TEST_DATA, sizeof(TEST_DATA) - 1, curTime.unix() + 1, curTime.unix()));
 		BOOST_CHECK(index.put("testLevel", "1", "testKey2", item2));
 		BOOST_CHECK(index.sync(curTime.unix()));
+
+		TItemSharedPtr item3(new Item(TEST_DATA, sizeof(TEST_DATA) - 1, curTime.unix() + 1, curTime.unix()));
+		BOOST_CHECK(index.put("testLevel", "1", "testKey3", item2));
+		BOOST_CHECK(index.find("testLevel", "1", "testKey3", curTime.unix(), ADD_TIME + 1).get() != NULL);
+		BOOST_CHECK(index.sync(curTime.unix()));
+		
 	);
 	BOOST_CHECK_NO_THROW(
 		Index index(testPath.path());
@@ -222,6 +272,8 @@ BOOST_AUTO_TEST_CASE( testIndexSyncTouch )
 		BOOST_CHECK(getData == TEST_DATA);
 		
 		BOOST_CHECK(index.find("testLevel", "1", "testKey2", curTime.unix() + ADD_TIME).get() == NULL);
+		
+		BOOST_CHECK(index.find("testLevel", "1", "testKey3", curTime.unix() + ADD_TIME).get() != NULL);
 	);
 }
 

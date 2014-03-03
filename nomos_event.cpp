@@ -10,10 +10,10 @@
 
 #include "nomos_event.hpp"
 #include "nomos_log.hpp"
+#include "index.hpp"
 
 using namespace fl::nomos;
 
-bool NomosEvent::_inited = false;
 Config *NomosEvent::_config = NULL;
 
 void NomosEvent::setConfig(Config *config)
@@ -21,13 +21,15 @@ void NomosEvent::setConfig(Config *config)
 	_config = config;
 }
 
-void NomosEvent::setInited(const bool inited)
+Index *NomosEvent::_index = NULL;
+
+void NomosEvent::setInited(class Index *index)
 {
-	_inited = inited;
+	_index = index;
 }
 
 NomosEvent::NomosEvent(const TEventDescriptor descr, const time_t timeOutTime)
-	: WorkEvent(descr, timeOutTime), _networkBuffer(NULL), _curState(ST_WAIT_QUERY), _querySize(0)
+	: WorkEvent(descr, timeOutTime), _networkBuffer(NULL), _curState(ST_WAIT_QUERY), _querySize(0), _dataQuery(NULL)
 {
 	_setWaitRead();
 }
@@ -70,11 +72,13 @@ void NomosEvent::_endWork()
 		threadSpecData->bufferPool.free(_networkBuffer);
 		_networkBuffer = NULL;
 	}
+	delete _dataQuery;
+	_dataQuery = NULL;
 }
 
 inline bool _readString(std::string &str, NetworkBuffer::TDataPtr &query, const char ch)
 {
-	char *pEnd = strchr(query, ',');
+	char *pEnd = strchr(query, ch);
 	if (!pEnd)
 		return false;
 	auto len = pEnd - query;
@@ -85,43 +89,181 @@ inline bool _readString(std::string &str, NetworkBuffer::TDataPtr &query, const 
 	return true;
 }
 
+bool NomosEvent::_parseCreateQuery(NetworkBuffer::TDataPtr &query)
+{
+	std::string level;
+	if (!_readString(level, query, ','))
+		return false;
+
+	std::string subLevelType;
+	if (!_readString(subLevelType, query, ','))
+		return false;
+	try
+	{
+		auto subLevelTypeID = Index::stringToType(subLevelType);
+		std::string itemType;
+		if (!_readString(itemType, query, 0))
+			return false;
+		auto itemTypeID = Index::stringToType(itemType);
+		if (_index->create(level, subLevelTypeID, itemTypeID)) {
+			_formOkAnswer(0);
+			return true;
+		} else {
+			_curState = ER_CRITICAL;
+			return false;
+		}
+	}
+	catch (...)
+	{
+		return false;
+	}
+	return false;
+}
+
 bool NomosEvent::_parsePutQuery(NetworkBuffer::TDataPtr &query)
 {
-	if (!_readString(_level, query, ','))
+	if (!_dataQuery)
+		_dataQuery = new DataQuery();
+	
+	if (!_readString(_dataQuery->level, query, ','))
 		return false;
-	if (!_readString(_subLevel, query, ','))
+	if (!_readString(_dataQuery->subLevel, query, ','))
 		return false;
-	if (!_readString(_itemKey, query, ','))
+	if (!_readString(_dataQuery->itemKey, query, ','))
 		return false;
 	char *endQ;
-	_lifeTime = strtoul(query, &endQ, 10);
+	_dataQuery->lifeTime = strtoul(query, &endQ, 10);
 	if (*endQ != ',')
 		return false;
 	query = endQ + 1;
-	_itemSize = strtoul(query, &endQ, 10);
-	if (!_itemSize)
+	_dataQuery->itemSize = strtoul(query, &endQ, 10);
+	if (!_dataQuery->itemSize)
 		return false;
 	uint32_t readBodyLen = _networkBuffer->size() - _querySize;
-	if (readBodyLen >= _itemSize)
-		_curState = ST_FORM_ANSWER;
-	else
+	if (readBodyLen >= _dataQuery->itemSize)
+		return _formPutAnswer(); // check exists only on UPDATE cmd 
+	else {
 		_curState = ST_WAIT_DATA;
-	return true;
+		return true;
+	}
+}
+
+bool NomosEvent::_formPutAnswer()
+{
+	TItemSharedPtr item(new Item(_networkBuffer->c_str() + _querySize, _dataQuery->itemSize, 
+		EPollWorkerGroup::curTime.unix() + _dataQuery->lifeTime, EPollWorkerGroup::curTime.unix()));
+	auto res = _index->put(_dataQuery->level, _dataQuery->subLevel, _dataQuery->itemKey, item, _cmd == CMD_UPDATE);
+	if (res) {
+		_formOkAnswer(0);
+		return true;
+	}
+	else
+	{
+		_curState = ER_PUT;
+		return false;
+	}
+}
+
+bool NomosEvent::_parseGetQuery(NetworkBuffer::TDataPtr &query)
+{
+	std::string level;
+	if (!_readString(level, query, ','))
+		return false;
+	std::string subLevel;
+	if (!_readString(subLevel, query, ','))
+		return false;
+	std::string itemKey;
+	if (!_readString(itemKey, query, ','))
+		return false;
+	time_t lifeTime = strtoul(query, NULL, 10);
+	
+	auto item = _index->find(level, subLevel, itemKey, EPollWorkerGroup::curTime.unix(), lifeTime);
+	if (item.get() == NULL) {
+		_curState = ER_NOT_FOUND;
+		return false;
+	}
+	else
+	{
+		_formOkAnswer(item->size());
+		_networkBuffer->add(static_cast<NetworkBuffer::TDataPtr>(item->data()), item->size());
+		return true;
+	}
+}
+
+bool NomosEvent::_parseTouchQuery(NetworkBuffer::TDataPtr &query)
+{
+	std::string level;
+	if (!_readString(level, query, ','))
+		return false;
+	std::string subLevel;
+	if (!_readString(subLevel, query, ','))
+		return false;
+	std::string itemKey;
+	if (!_readString(itemKey, query, ','))
+		return false;
+	time_t lifeTime = strtoul(query, NULL, 10);
+
+	if (_index->touch(level, subLevel, itemKey, lifeTime, EPollWorkerGroup::curTime.unix())) {
+		_formOkAnswer(0);
+		return true;
+	} else {
+		_curState = ER_NOT_FOUND;
+		return false;
+	}
+}
+
+bool NomosEvent::_parseRemoveQuery(NetworkBuffer::TDataPtr &query)
+{
+	std::string level;
+	if (!_readString(level, query, ','))
+		return false;
+	std::string subLevel;
+	if (!_readString(subLevel, query, ','))
+		return false;
+	std::string itemKey;
+	if (!_readString(itemKey, query, ','))
+		return false;
+
+	if (_index->remove(level, subLevel, itemKey)) {
+		_formOkAnswer(0);
+		return true;
+	} else {
+		_curState = ER_NOT_FOUND;
+		return false;
+	}
 }
 
 bool NomosEvent::_parseQuery()
 {
+	if (!_index)
+	{
+		_curState = ER_NOT_READY;
+		return false;
+	}
+	_curState = ER_PARSE;
 	NetworkBuffer::TDataPtr query = _networkBuffer->c_str();
 	
 	if (memcmp(query, "V01,", 4))
 		return false;
 	query += 4;
 	_cmd = static_cast<ENomosCMD>(*query);
+	query++;
+	if (*query != ',')
+		return false;
+	query++;
 	switch (_cmd)
 	{
+	case CMD_GET:
+		return _parseGetQuery(query);
 	case CMD_PUT:
+	case CMD_UPDATE:
 		return _parsePutQuery(query);
-		break;
+	case CMD_TOUCH:
+		return _parseTouchQuery(query);
+	case CMD_REMOVE:
+		return _parseRemoveQuery(query);
+	case CMD_CREATE:
+		return _parseCreateQuery(query);
 	default:
 		return false;
 	};
@@ -144,7 +286,10 @@ bool NomosEvent::_readQuery()
 		_querySize =  (endQuery - _networkBuffer->c_str()) + 1;
 		static const NetworkBuffer::TSize MIN_QUERY_SIZE = 10;
 		if (_querySize < MIN_QUERY_SIZE)
+		{
+			_curState = ER_PARSE;
 			return false;
+		}
 		if (*(endQuery - 1) == '\r')
 			*const_cast<char*>(endQuery - 1) = 0;
 		else
@@ -152,10 +297,7 @@ bool NomosEvent::_readQuery()
 		if (_parseQuery())
 			return true;
 		else
-		{
-			_curState = ER_PARSE;
 			return false;
-		}
 	}
 	else
 		return true;
@@ -169,21 +311,16 @@ bool NomosEvent::_readQueryData()
 	else if (res == NetworkBuffer::IN_PROGRESS)
 		return true;
 	uint32_t readBodyLen = _networkBuffer->size() - _querySize;
-	if (readBodyLen >= _itemSize)
-		_curState = ST_FORM_ANSWER;
+	if (readBodyLen >= _dataQuery->itemSize)
+		return _formPutAnswer();
 	return true;
 }
 
-bool NomosEvent::_formAnswer()
+inline void NomosEvent::_formOkAnswer(const uint32_t size)
 {
-	if (!_inited)
-	{
-		_curState = ER_NOT_READY;
-		return false;
-	}
+	_curState = ST_SEND;
 	_networkBuffer->clear();
-	_networkBuffer->sprintfSet("OK\n");
-	return true;
+	_networkBuffer->sprintfSet("OK%+08x\n", size);
 }
 
 NomosEvent::ECallResult NomosEvent::_sendError()
@@ -192,21 +329,14 @@ NomosEvent::ECallResult NomosEvent::_sendError()
 	if (erorrNum > ER_UNKNOWN)
 		erorrNum = ER_UNKNOWN;
 	_networkBuffer->clear();
-	
-	_networkBuffer->sprintfSet("ER%8x\n", erorrNum);
-	auto res = _networkBuffer->send(_descr);
-	if (res == NetworkBuffer::IN_PROGRESS) {
-		_setWaitSend();
-		if (_thread->ctrl(this))
-		{
-			_curState = ST_SEND_AND_CLOSE;
-			return SKIP;
-		}
-		else
-			return FINISHED;
+	if (erorrNum <= ER_CRITICAL)	{
+		_networkBuffer->sprintfSet("ERR_CR%+04x\n", erorrNum);
+		_curState = ST_SEND_AND_CLOSE;
+	} else {
+		_networkBuffer->sprintfSet("ERR%+07x\n", erorrNum);
+		_curState = ST_SEND;
 	}
-	else
-		return FINISHED;
+	return _sendAnswer();
 }
 
 NomosEvent::ECallResult NomosEvent::_sendAnswer()
@@ -215,7 +345,6 @@ NomosEvent::ECallResult NomosEvent::_sendAnswer()
 	if (res == NetworkBuffer::IN_PROGRESS) {
 		_setWaitSend();
 		if (_thread->ctrl(this)) {
-			_curState = ST_SEND_AND_CLOSE;
 			return SKIP;
 		}
 		else
@@ -225,7 +354,7 @@ NomosEvent::ECallResult NomosEvent::_sendAnswer()
 			if (_reset())
 				return CHANGE;
 		}
-	} 
+	}
 	return FINISHED;	
 }
 
@@ -248,13 +377,8 @@ const NomosEvent::ECallResult NomosEvent::call(const TEvents events)
 			if (!_readQueryData())
 				return _sendError();
 		}
-		if (_curState == ST_FORM_ANSWER) {
-			if (_formAnswer()) {
-				return _sendAnswer();
-			}
-			else
-				return _sendError();
-		}
+		if (_curState == ST_SEND)
+			return _sendAnswer();
 		else
 			return SKIP;
 	}
