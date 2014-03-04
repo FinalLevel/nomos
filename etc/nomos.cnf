@@ -11,3 +11,5 @@ autoCreateTopIndex=off
 ; Types can be INT32, INT64 or STRING
 defaultSublevelKeyType=INT32
 defaultItemKeyType=INT64
+
+syncThreadsCount=3

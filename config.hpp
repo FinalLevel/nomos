@@ -97,6 +97,10 @@ namespace fl {
 			{
 				return _defaultItemKeyType;
 			}
+			uint32_t syncThreadsCount() const
+			{
+				return _syncThreadsCount;
+			}
 		private:
 			void _parseNetworkParams(boost::property_tree::ptree &pt);
 			void _parseIndexParams(boost::property_tree::ptree &pt);
@@ -105,7 +109,7 @@ namespace fl {
 			int _logLevel;
 			std::string _dataPath;
 			std::string _listenIp;
-			u_int32_t _port;
+			uint32_t _port;
 			int _cmdTimeout;
 			Socket _listenSocket;
 			size_t _workerQueueLength;
@@ -116,6 +120,8 @@ namespace fl {
 			
 			EKeyType _defaultSublevelKeyType;
 			EKeyType _defaultItemKeyType;
+			
+			uint32_t _syncThreadsCount;
 		};
 	};
 };

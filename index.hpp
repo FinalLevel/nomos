@@ -65,7 +65,8 @@ namespace fl {
 				REMOVE,
 			};
 		};
-
+		
+		typedef std::shared_ptr<class TopLevelIndex> TTopLevelIndexPtr;
 		class TopLevelIndex
 		{
 		public:
@@ -83,13 +84,14 @@ namespace fl {
 				uint8_t subLevelKeyType;
 				uint8_t itemKeyType;
 			};
-			TopLevelIndex(const std::string &path, const MetaData &md);
+			TopLevelIndex(class Index *index, const std::string &path, const MetaData &md);
 			
-			static TopLevelIndex *createFromDirectory(const std::string &path);
-			static TopLevelIndex *create(const std::string &path, const EKeyType subLevelKeyType, const EKeyType itemKeyType);
+			static TopLevelIndex *createFromDirectory(class Index *index, const std::string &path);
+			static TopLevelIndex *create(Index *index, const std::string &path, 
+				const EKeyType subLevelKeyType, const EKeyType itemKeyType);
 			virtual bool load(Buffer &buf, const ItemHeader::TTime curTime) = 0;
 			virtual TItemSharedPtr find(const std::string &subLevel, const std::string &key, 
-				const ItemHeader::TTime curTime, const ItemHeader::TTime lifeTime) = 0;
+				const ItemHeader::TTime curTime, const ItemHeader::TTime lifeTime, TTopLevelIndexPtr &selfPointer) = 0;
 			virtual void put(const std::string &subLevel, const std::string &key, TItemSharedPtr &item, 
 				bool checkBeforeReplace) = 0;
 			virtual bool remove(const std::string &subLevel, const std::string &itemKey) = 0;
@@ -99,6 +101,7 @@ namespace fl {
 			virtual bool sync(Buffer &buf, const ItemHeader::TTime curTime) = 0;
 			virtual bool pack(Buffer &buf, const ItemHeader::TTime curTime) = 0;
 		protected:
+			class Index *_index;
 			std::string _path;
 			MetaData _md;
 			
@@ -125,13 +128,13 @@ namespace fl {
 			static const ItemHeader::TTime REMOVED_LIVE_TO = 1;
 	
 		};
-		typedef std::shared_ptr<TopLevelIndex> TTopLevelIndexPtr;
 
 		class IndexSyncThread : public fl::threads::Thread
 		{
 		public:
 			IndexSyncThread();
 			virtual ~IndexSyncThread() {}
+			void add(TTopLevelIndexPtr &topLevel);
 		private:
 			virtual void run();
 			fl::threads::CondMutex _cond;
@@ -146,7 +149,7 @@ namespace fl {
 			Index(const std::string &path);
 			~Index();
 			void setAutoCreate(const bool ison, const EKeyType defaultSublevelType, const EKeyType defaultItemKeyType);
-			void startThreads();
+			void startThreads(const uint32_t syncThreadCount);
 			bool hour(fl::chrono::ETime &curTime);
 			
 			bool create(const std::string &level, const EKeyType subLevelKeyType, const EKeyType itemKeyType);
@@ -183,6 +186,8 @@ namespace fl {
 			private:
 				BString _buf;
 			};
+			
+			void addToSync(TTopLevelIndexPtr &topLevel);
 		private:
 			bool _checkLevelName(const std::string &name);
 			std::string _path;
@@ -198,6 +203,9 @@ namespace fl {
 			Mutex _sync;
 			
 			fl::threads::TimeThread _timeThread;
+			
+			typedef std::vector<IndexSyncThread*> TSyncThreadVector;
+			TSyncThreadVector _syncThreads;
 		};
 	};
 };

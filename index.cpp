@@ -21,8 +21,8 @@ using fl::fs::Directory;
 using fl::fs::File;
 using namespace fl::utils;
 
-TopLevelIndex::TopLevelIndex(const std::string &path, const MetaData &md)
-	: _path(path), _md(md)
+TopLevelIndex::TopLevelIndex(Index *index, const std::string &path, const MetaData &md)
+	: _index(index), _path(path), _md(md)
 {
 }
 
@@ -168,8 +168,8 @@ class MemmoryTopLevelIndex : public TopLevelIndex
 public:
 	typedef u_int16_t TSliceCount;
 	static const TSliceCount ITEM_DEFAULT_SLICES_COUNT = 10;
-	MemmoryTopLevelIndex(const std::string &path, const MetaData &md)
-		: TopLevelIndex(path, md), _slicesCount(ITEM_DEFAULT_SLICES_COUNT)
+	MemmoryTopLevelIndex(Index *index, const std::string &path, const MetaData &md)
+		: TopLevelIndex(index, path, md), _slicesCount(ITEM_DEFAULT_SLICES_COUNT)
 	{
 
 	}
@@ -206,7 +206,7 @@ public:
 	}
 	
 	virtual TItemSharedPtr find(const std::string &subLevelKeyStr, const std::string &key, 
-		const ItemHeader::TTime curTime, const ItemHeader::TTime lifeTime) 
+		const ItemHeader::TTime curTime, const ItemHeader::TTime lifeTime, TTopLevelIndexPtr &selfPointer) 
 	{
 		HeaderPacket headerPacket;
 		headerPacket.cmd = EIndexCMDType::TOUCH;
@@ -224,7 +224,10 @@ public:
 		else if (item->second->isValid(curTime))
 		{
 			if (lifeTime) 
+			{
 				_touch(headerPacket, item->second.get(), lifeTime, curTime);
+				_index->addToSync(selfPointer);
+			}
 			return item->second;
 		}
 		else {
@@ -887,17 +890,17 @@ struct TKeyType<KEY_INT64>
 
 template <template<typename TSubLevelKey, typename TItemKey> class TIndexClass, typename TSubLevelKey>
 TopLevelIndex *createTopLevelIndex(
-	const EKeyType itemKeyType, const std::string &path, const TopLevelIndex::MetaData &md
+	const EKeyType itemKeyType, Index *index, const std::string &path, const TopLevelIndex::MetaData &md
 )
 {
 	switch (itemKeyType) 
 	{
 	case KEY_STRING:
-		return new TIndexClass<TSubLevelKey, TKeyType<KEY_STRING>::type>(path, md);
+		return new TIndexClass<TSubLevelKey, TKeyType<KEY_STRING>::type>(index, path, md);
 	case KEY_INT32:
-		return new TIndexClass<TSubLevelKey, TKeyType<KEY_INT32>::type>(path, md);
+		return new TIndexClass<TSubLevelKey, TKeyType<KEY_INT32>::type>(index, path, md);
 	case KEY_INT64:
-		return new TIndexClass<TSubLevelKey, TKeyType<KEY_INT64>::type>(path, md);
+		return new TIndexClass<TSubLevelKey, TKeyType<KEY_INT64>::type>(index, path, md);
 	};
 	return  NULL;
 }
@@ -905,6 +908,7 @@ template <template<typename TSubLevelKey, typename TItemKey> class TIndexClass>
 TopLevelIndex *createTopLevelIndex(
 	const EKeyType subLevelType, 
 	const EKeyType itemKeyType, 
+	Index *index,
 	const std::string &path, 
 	const TopLevelIndex::MetaData &md
 )
@@ -912,16 +916,16 @@ TopLevelIndex *createTopLevelIndex(
 	switch (subLevelType)
 	{
 		case KEY_STRING:
-			return createTopLevelIndex<TIndexClass, TKeyType<KEY_STRING>::type>(itemKeyType, path, md);
+			return createTopLevelIndex<TIndexClass, TKeyType<KEY_STRING>::type>(itemKeyType, index, path, md);
 		case KEY_INT32:
-			return createTopLevelIndex<TIndexClass, TKeyType<KEY_INT32>::type>(itemKeyType, path, md);
+			return createTopLevelIndex<TIndexClass, TKeyType<KEY_INT32>::type>(itemKeyType, index, path, md);
 		case KEY_INT64:
-			return createTopLevelIndex<TIndexClass, TKeyType<KEY_INT64>::type>(itemKeyType, path, md);
+			return createTopLevelIndex<TIndexClass, TKeyType<KEY_INT64>::type>(itemKeyType, index, path, md);
 	};
 	return  NULL;
 }
 
-TopLevelIndex *TopLevelIndex::createFromDirectory(const std::string &path)
+TopLevelIndex *TopLevelIndex::createFromDirectory(Index *index, const std::string &path)
 {
 	BString metFileName;
 	_formMetaFileName(path, metFileName);
@@ -936,10 +940,11 @@ TopLevelIndex *TopLevelIndex::createFromDirectory(const std::string &path)
 		return NULL;
 	}
 	return createTopLevelIndex<MemmoryTopLevelIndex>(
-					static_cast<EKeyType>(md.subLevelKeyType), static_cast<EKeyType>(md.itemKeyType), path, md);
+					static_cast<EKeyType>(md.subLevelKeyType), static_cast<EKeyType>(md.itemKeyType), index, path, md);
 }
 
 TopLevelIndex *TopLevelIndex::create(
+	Index *index,
 	const std::string &path, 
 	const EKeyType subLevelKeyType, 
 	const EKeyType itemKeyType
@@ -965,7 +970,7 @@ TopLevelIndex *TopLevelIndex::create(
 		return NULL;
 	}
 	
-	return createTopLevelIndex<MemmoryTopLevelIndex>(subLevelKeyType, itemKeyType, path, md);
+	return createTopLevelIndex<MemmoryTopLevelIndex>(subLevelKeyType, itemKeyType, index, path, md);
 }
 
 Index::Index(const std::string &path)
@@ -978,7 +983,7 @@ Index::Index(const std::string &path)
 		if (dir.name()[0] == '.') // skip
 			continue;
 		topLevelPath.sprintfSet("%s/%s", path.c_str(), dir.name());
-		TopLevelIndex *topLevelIndex = TopLevelIndex::createFromDirectory(topLevelPath.c_str());
+		TopLevelIndex *topLevelIndex = TopLevelIndex::createFromDirectory(this, topLevelPath.c_str());
 		if (!topLevelIndex) {
 			log::Error::L("Cannot load TopLevelIndex %s\n", topLevelPath.c_str());
 			continue;
@@ -1076,6 +1081,7 @@ bool Index::put(const std::string &level, const std::string &subLevel, const std
 	auto topLevel = f->second;
 	autoSync.unLock();
 	topLevel->put(subLevel, itemKey, item, checkBeforeReplace);
+	addToSync(topLevel);
 	return true;
 }
 
@@ -1087,7 +1093,13 @@ bool Index::remove(const std::string &level, const std::string &subLevel, const 
 		return false;
 	auto topLevel = f->second;
 	autoSync.unLock();
-	return topLevel->remove(subLevel, itemKey);
+	if (topLevel->remove(subLevel, itemKey))
+	{
+		addToSync(topLevel);
+		return true;
+	}
+	else
+		return false;
 }
 
 TItemSharedPtr Index::find(const std::string &level, const std::string &subLevel, const std::string &itemKey, 
@@ -1099,7 +1111,7 @@ TItemSharedPtr Index::find(const std::string &level, const std::string &subLevel
 		return TItemSharedPtr();
 	auto topLevel = f->second;
 	autoSync.unLock();
-	return topLevel->find(subLevel, itemKey, curTime, lifeTime);
+	return topLevel->find(subLevel, itemKey, curTime, lifeTime, topLevel);
 }
 
 bool Index::touch(const std::string &level, const std::string &subLevel, const std::string &itemKey, 
@@ -1111,7 +1123,13 @@ bool Index::touch(const std::string &level, const std::string &subLevel, const s
 		return false;
 	auto topLevel = f->second;
 	autoSync.unLock();
-	return topLevel->touch(subLevel, itemKey, setTime, curTime);
+	if (topLevel->touch(subLevel, itemKey, setTime, curTime))
+	{
+		addToSync(topLevel);
+		return true;
+	}
+	else
+		return false;
 }
 
 bool Index::load(const ItemHeader::TTime curTime)
@@ -1173,7 +1191,7 @@ bool Index::create(const std::string &level, const EKeyType subLevelKeyType, con
 		log::Error::L("Cannot create directory for a new top level %s\n", path.c_str());
 		return false;
 	}
-	TopLevelIndex *topLevelIndex = TopLevelIndex::create(path.c_str(), subLevelKeyType, itemKeyType);
+	TopLevelIndex *topLevelIndex = TopLevelIndex::create(this, path.c_str(), subLevelKeyType, itemKeyType);
 	if (!topLevelIndex)	{
 		log::Error::L("Cannot create new TopLevelIndex %s\n", path.c_str());
 		return false;
@@ -1191,17 +1209,49 @@ bool Index::hour(fl::chrono::ETime &curTime)
 	return true;
 }
 
-void Index::startThreads()
+void Index::startThreads(const uint32_t syncThreadCount)
 {
 	_timeThread.addEveryHour(new fl::threads::TimeTask<Index>(this, &Index::hour));
 	if (!_timeThread.create())
+	{
+		log::Fatal::L("Can't create a time thread\n");
 		throw std::exception();
+	}
+	
+	for (uint32_t i = 0; i < syncThreadCount; i++)
+	{
+		_syncThreads.push_back(new IndexSyncThread());
+	}
+	log::Info::L("%u sync threads have been started\n", _syncThreads.size());
+}
+
+void Index::addToSync(TTopLevelIndexPtr &topLevel)
+{
+	if (_syncThreads.empty())
+		return;
+	
+	static int num = 0;
+	num++;
+	_syncThreads[num % _syncThreads.size()]->add(topLevel);
 }
 
 IndexSyncThread::IndexSyncThread()
 {
 	static const uint32_t SYNC_THREAD_STACK_SIZE = 100000;
 	setStackSize(SYNC_THREAD_STACK_SIZE);
+	if (!create())
+	{
+		log::Fatal::L("Can't create an index thread\n");
+		throw std::exception();
+	}
+}
+
+void IndexSyncThread::add(TTopLevelIndexPtr &topLevel)
+{
+	_sync.lock();
+	_needSyncLevels.push_back(topLevel);
+	_sync.unLock();
+	_cond.sendSignal();
 }
 
 void IndexSyncThread::run()

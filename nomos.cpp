@@ -51,7 +51,7 @@ int main(int argc, char *argv[])
 		if (!index->load(curTime.unix()))
 			return -1;
 		index->setAutoCreate(config->isAutoCreate(), config->defaultSublevelKeyType(), config->defaultItemKeyType());
-		index->startThreads();
+		index->startThreads(config->syncThreadsCount());
 		
 		NomosEvent::setInited(index.get());
 		workerGroup->waitThreads();

@@ -20,7 +20,8 @@ using namespace boost::property_tree::ini_parser;
 Config::Config(int argc, char *argv[])
 	: _status(0), _logLevel(FL_LOG_LEVEL), _port(0), _cmdTimeout(0), _workerQueueLength(0), _workers(0),
 	_bufferSize(0), _maxFreeBuffers(0),
-	_defaultSublevelKeyType(KEY_INT32), _defaultItemKeyType(KEY_INT64)
+	_defaultSublevelKeyType(KEY_INT32), _defaultItemKeyType(KEY_INT64),
+	_syncThreadsCount(1)
 {
 	std::string configFileName(DEFAULT_CONFIG);
 	char ch;
@@ -87,6 +88,8 @@ void Config::_parseIndexParams(boost::property_tree::ptree &pt)
 	{
 		_defaultSublevelKeyType = Index::stringToType(pt.get<std::string>("nomos-server.defaultSublevelKeyType", "INT32"));
 		_defaultItemKeyType = Index::stringToType(pt.get<std::string>("nomos-server.defaultItemKeyType", "INT64"));
+		
+		_syncThreadsCount = pt.get<decltype(_syncThreadsCount)>("nomos-server.syncThreadsCount", 1);
 	}
 	catch (Index::ConvertError &e)
 	{
