@@ -11,6 +11,7 @@
 
 
 #include <memory>
+#include <signal.h>
 #include "socket.hpp"
 #include "config.hpp"
 #include "nomos_log.hpp"
@@ -24,6 +25,22 @@ using fl::network::Socket;
 using fl::chrono::Time;
 using namespace fl::nomos;
 using namespace fl::events;
+
+void sigInt(int sig)
+{
+	log::Fatal::L("Interruption signal (%d) has been received - flushing data\n", sig);
+	static Mutex sigSync;
+	if (!sigSync.tryLock())
+		return;
+	
+	NomosEvent::exitFlush();
+	exit(0);
+}
+
+void setSignals()
+{
+	signal(SIGINT, sigInt);
+}
 
 int main(int argc, char *argv[])
 {
@@ -54,6 +71,7 @@ int main(int argc, char *argv[])
 		index->startThreads(config->syncThreadsCount());
 		
 		NomosEvent::setInited(index.get());
+		setSignals();
 		workerGroup->waitThreads();
 	}
 	catch (...)	

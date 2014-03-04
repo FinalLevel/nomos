@@ -14,6 +14,7 @@
 #include <boost/property_tree/ptree.hpp>
 
 #include <string>
+#include <vector>
 #include "socket.hpp"
 #include "types.hpp"
 
@@ -101,9 +102,11 @@ namespace fl {
 			{
 				return _syncThreadsCount;
 			}
+			
 		private:
 			void _parseNetworkParams(boost::property_tree::ptree &pt);
 			void _parseIndexParams(boost::property_tree::ptree &pt);
+			void _parseReplicationParams(boost::property_tree::ptree &pt);
 			TStatus _status;
 			std::string _logPath;
 			int _logLevel;
@@ -122,6 +125,11 @@ namespace fl {
 			EKeyType _defaultItemKeyType;
 			
 			uint32_t _syncThreadsCount;
+			TServerID _serverID;
+			uint32_t _replicationLogKeepTime;
+			uint32_t _replicationPort;
+			Socket _replicationSocket;
+			TServerList _masters;
 		};
 	};
 };

@@ -23,9 +23,18 @@ void NomosEvent::setConfig(Config *config)
 
 Index *NomosEvent::_index = NULL;
 
+bool NomosEvent::_isReady = false;
 void NomosEvent::setInited(class Index *index)
 {
 	_index = index;
+	_isReady = true;
+}
+
+void NomosEvent::exitFlush()
+{
+	_isReady = false;
+	if (_index)
+		_index->exitFlush();
 }
 
 NomosEvent::NomosEvent(const TEventDescriptor descr, const time_t timeOutTime)
@@ -235,7 +244,7 @@ bool NomosEvent::_parseRemoveQuery(NetworkBuffer::TDataPtr &query)
 
 bool NomosEvent::_parseQuery()
 {
-	if (!_index)
+	if (!_isReady)
 	{
 		_curState = ER_NOT_READY;
 		return false;

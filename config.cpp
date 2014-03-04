@@ -21,7 +21,7 @@ Config::Config(int argc, char *argv[])
 	: _status(0), _logLevel(FL_LOG_LEVEL), _port(0), _cmdTimeout(0), _workerQueueLength(0), _workers(0),
 	_bufferSize(0), _maxFreeBuffers(0),
 	_defaultSublevelKeyType(KEY_INT32), _defaultItemKeyType(KEY_INT64),
-	_syncThreadsCount(1)
+	_syncThreadsCount(1), _serverID(0), _replicationLogKeepTime(0), _replicationPort(0)
 {
 	std::string configFileName(DEFAULT_CONFIG);
 	char ch;
@@ -42,13 +42,13 @@ Config::Config(int argc, char *argv[])
 		if (pt.get<std::string>("nomos-server.logStdout", "on") == "on")
 			_status |= ST_LOG_STDOUT;
 		_dataPath = pt.get<decltype(_dataPath)>("nomos-server.dataPath", "");
-		if (_dataPath.empty())
-		{
+		if (_dataPath.empty()) {
 			printf("nomos-server.dataPath is not set\n");
 			throw std::exception();
 		}
 		_parseNetworkParams(pt);
 		_parseIndexParams(pt);
+		_parseReplicationParams(pt);
 		_cmdTimeout =  pt.get<decltype(_cmdTimeout)>("nomos-server.cmdTimeout", DEFAULT_SOCKET_TIMEOUT);
 		_workerQueueLength = pt.get<decltype(_workerQueueLength)>("nomos-server.socketQueueLength", 
 			DEFAULT_SOCKET_QUEUE_LENGTH);
@@ -72,8 +72,7 @@ Config::Config(int argc, char *argv[])
 void Config::_parseNetworkParams(boost::property_tree::ptree &pt)
 {
 	_listenIp = pt.get<decltype(_listenIp)>("nomos-server.listen", "");
-	if (_listenIp.empty())
-	{
+	if (_listenIp.empty()) {
 		printf("nomos-server.listenIP is not set\n");
 		throw std::exception();
 	}
@@ -98,13 +97,73 @@ void Config::_parseIndexParams(boost::property_tree::ptree &pt)
 	}
 }
 
+void Config::_parseReplicationParams(boost::property_tree::ptree &pt)
+{
+	auto replicationLogKeepTimeStr = pt.get<std::string>("nomos-server.replicationLogKeepTime", "0");
+	char *last;
+	u_int32_t replicationLogKeepTime = strtoul(replicationLogKeepTimeStr.c_str(), &last, 10);
+	if (!replicationLogKeepTime) // turn replication off
+		return;
+	if (tolower(*last) == 'h')
+		_replicationLogKeepTime = replicationLogKeepTime * 3600;
+	else 
+		_replicationLogKeepTime = replicationLogKeepTime * 3600 * 24;
+	
+	_serverID = pt.get<decltype(_serverID)>("nomos-server.serverID", 0);
+	if (!_serverID) {
+		printf("nomos-server.serverID can't be zero\n");
+		throw std::exception();
+	}
+	
+	_replicationPort = pt.get<decltype(_replicationPort)>("nomos-server.replicationPort", 0);
+	if (!_replicationPort) {
+		printf("nomos-server.replicationPort can't be zero\n");
+		throw std::exception();
+	}
+	
+	auto masters = pt.get<std::string>("nomos-server.masters", "");
+	const char *pbegin = masters.c_str();
+	const char *pend = masters.c_str() + masters.size();
+	Server server;
+	while (pbegin < pend) {
+		const char *p = strchr(pbegin, ':');
+		if (p == NULL) { // can't find port
+			printf("Can't find port at nomos-server.masters\n");
+			throw std::exception();
+		}
+		int len = p - pbegin;
+		static const int MIN_IP_LENGTH = 7;
+		if (len < MIN_IP_LENGTH) {
+			printf("IP format is mismatch at nomos-server.masters\n");
+			throw std::exception();
+		}
+		server.listenIp.assign(pbegin, len);
+		pbegin = p + 1;
+		char *endPort;
+		server.port = strtoul(pbegin, &endPort, 10);
+		if (server.port == 0) {
+			printf("Port can't be zero at nomos-server.masters\n");
+			throw std::exception();
+		}
+		_masters.push_back(server);
+		pbegin = endPort + 1;
+	}
+}
+
 bool Config::initNetwork()
 {
-	if (!_listenSocket.listen(_listenIp.c_str(), _port))
-	{
+	if (!_listenSocket.listen(_listenIp.c_str(), _port))	{
 		log::Error::L("Can't listen to %s:%u\n", _listenIp.c_str(), _port);
 		return false;
 	}
 	log::Warning::L("Listen to %s:%u\n", _listenIp.c_str(), _port);
+	
+	if (_replicationPort > 0)	{
+		if (!_replicationSocket.listen(_listenIp.c_str(), _replicationPort)) {
+			log::Error::L("Can't listen to %s:%u for replication\n", _listenIp.c_str(), _replicationPort);
+			return false;
+		}
+		log::Warning::L("Listen to %s:%u for replication\n", _listenIp.c_str(), _replicationPort);
+	}
 	return true;
 }

@@ -20,6 +20,15 @@ namespace fl {
 			KEY_INT64,
 			KEY_MAX_TYPE = KEY_INT64 // should always be equal max key type
 		};
+		typedef uint32_t TServerID;
+		
+		struct Server
+		{
+			std::string listenIp;
+			uint32_t port;
+		};
+		typedef std::vector<Server> TServerList;
+
 	};
 };
 

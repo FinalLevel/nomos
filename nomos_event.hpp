@@ -52,9 +52,11 @@ namespace fl {
 			virtual const ECallResult call(const TEvents events);
 			static void setInited(class Index *index);
 			static void setConfig(Config *config);
+			static void exitFlush();
 		private:
 			static Config *_config;
 			static class Index *_index;
+			static bool _isReady;
 			void _endWork();
 			bool _reset();
 			bool _readQuery();

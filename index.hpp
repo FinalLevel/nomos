@@ -98,7 +98,7 @@ namespace fl {
 			virtual bool touch(const std::string &subLevel, const std::string &itemKey, 
 				const ItemHeader::TTime setTime, const ItemHeader::TTime curTime) = 0;
 			virtual void clearOld(const ItemHeader::TTime curTime) = 0;
-			virtual bool sync(Buffer &buf, const ItemHeader::TTime curTime) = 0;
+			virtual bool sync(Buffer &buf, const ItemHeader::TTime curTime, bool force) = 0;
 			virtual bool pack(Buffer &buf, const ItemHeader::TTime curTime) = 0;
 		protected:
 			class Index *_index;
@@ -188,8 +188,18 @@ namespace fl {
 			};
 			
 			void addToSync(TTopLevelIndexPtr &topLevel);
+			
+			const TServerID serverID() const
+			{
+				return _serverID;
+			}
+			bool startReplicationLog(const TServerID serverID, const u_int32_t replicationLogKeepTime);
+			void exitFlush();
 		private:
+			static Mutex _hourlySync;
 			bool _checkLevelName(const std::string &name);
+			TServerID _serverID;
+			uint32_t _replicationLogKeepTime;
 			std::string _path;
 			typedef uint8_t TStatus;
 			TStatus _status;

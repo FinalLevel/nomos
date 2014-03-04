@@ -13,3 +13,13 @@ defaultSublevelKeyType=INT32
 defaultItemKeyType=INT64
 
 syncThreadsCount=3
+
+serverID=1
+
+; if replicationLogKeepTime is set to 0, replication will be turned off
+; it can be set in hours (24h) or days (3d)
+replicationLogKeepTime=24h
+replicationPort=7017
+
+; other masters in ip:port format
+masters=127.0.0.1:7018,127.0.0.1:7019

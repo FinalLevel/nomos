@@ -361,4 +361,43 @@ BOOST_AUTO_TEST_CASE( testIndexPack )
 	);
 }
 
+
+BOOST_AUTO_TEST_CASE( testIndexPackUnkownCMDBug )
+{
+	// test to reproduce the bug which was been at pack function (buf.add(cmd) - was forgotten)	
+	
+	TestIndexPath testPath;
+	Time curTime;
+	const char TEST_DATA[] = "1234567";	
+	try
+	{
+		Index index(testPath.path());
+		BOOST_CHECK(index.create("testLevel", KEY_INT32, KEY_STRING));
+		
+		TItemSharedPtr item(new Item(TEST_DATA, sizeof(TEST_DATA) - 1, curTime.unix() + 1, curTime.unix()));
+		BOOST_CHECK(index.put("testLevel", "1", "testKey", item));
+		BOOST_CHECK(index.sync(curTime.unix()));
+		
+		BOOST_CHECK(index.touch("testLevel", "1", "testKey", 3600, curTime.unix()));
+		BOOST_CHECK(index.sync(curTime.unix()));
+
+		BOOST_CHECK(index.pack(curTime.unix()));
+	}
+	catch (...)
+	{
+		BOOST_CHECK_NO_THROW(throw);
+	}
+	
+	BOOST_CHECK_NO_THROW(
+		Index index(testPath.path());
+		BOOST_CHECK(index.load(curTime.unix()));
+	
+		auto findItem = index.find("testLevel", "1", "testKey", curTime.unix());
+		BOOST_REQUIRE(findItem.get() != NULL);
+		std::string getData((char*)findItem.get()->data(), findItem.get()->size());
+		BOOST_CHECK(getData == TEST_DATA);
+	);
+}	
+
+
 BOOST_AUTO_TEST_SUITE_END()

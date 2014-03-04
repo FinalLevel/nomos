@@ -178,7 +178,7 @@ public:
 
 	virtual bool remove(const std::string &subLevelKeyStr, const std::string &key)
 	{
-		HeaderPacket headerPacket;
+		HeaderPacket headerPacket(_index->serverID());
 		headerPacket.cmd = EIndexCMDType::REMOVE;
 		headerPacket.subLevelKey = convertStdStringTo<TSubLevelKey>(subLevelKeyStr.c_str());
 		headerPacket.itemKey = convertStdStringTo<TItemKey>(key.c_str());
@@ -208,7 +208,7 @@ public:
 	virtual TItemSharedPtr find(const std::string &subLevelKeyStr, const std::string &key, 
 		const ItemHeader::TTime curTime, const ItemHeader::TTime lifeTime, TTopLevelIndexPtr &selfPointer) 
 	{
-		HeaderPacket headerPacket;
+		HeaderPacket headerPacket(_index->serverID());
 		headerPacket.cmd = EIndexCMDType::TOUCH;
 		headerPacket.subLevelKey = convertStdStringTo<TSubLevelKey>(subLevelKeyStr.c_str());
 		headerPacket.itemKey = convertStdStringTo<TItemKey>(key.c_str());
@@ -239,7 +239,7 @@ public:
 	virtual bool touch(const std::string &subLevelKeyStr, const std::string &key, 
 		const ItemHeader::TTime setTime, const ItemHeader::TTime curTime)
 	{
-		HeaderPacket headerPacket;
+		HeaderPacket headerPacket(_index->serverID());
 		headerPacket.cmd = EIndexCMDType::TOUCH;
 		headerPacket.subLevelKey = convertStdStringTo<TSubLevelKey>(subLevelKeyStr.c_str());
 		headerPacket.itemKey = convertStdStringTo<TItemKey>(key.c_str());
@@ -264,7 +264,7 @@ public:
 	
 	virtual void put(const std::string &subLevel, const std::string &key, TItemSharedPtr &item, bool checkBeforeReplace)
 	{
-		DataPacket dataPacket;
+		DataPacket dataPacket(_index->serverID());
 		dataPacket.subLevelKey = convertStdStringTo<TSubLevelKey>(subLevel);
 		dataPacket.itemKey = convertStdStringTo<TItemKey>(key);
 		dataPacket.item = item;
@@ -277,7 +277,7 @@ public:
 			_packetSync.lock();
 			_dataPackets.push_back(dataPacket);
 			if (oldItem.get() != NULL) {// mark old item as removed 
-				HeaderPacket headerPacket;
+				HeaderPacket headerPacket(_index->serverID());
 				headerPacket.cmd = EIndexCMDType::REMOVE;
 				headerPacket.subLevelKey = dataPacket.subLevelKey;
 				headerPacket.itemKey = dataPacket.itemKey;
@@ -291,7 +291,7 @@ public:
 				oldItem->setHeader(item->header());
 				autoSync.unLock();
 				
-				HeaderPacket headerPacket;
+				HeaderPacket headerPacket(_index->serverID());
 				headerPacket.cmd = EIndexCMDType::TOUCH;
 				headerPacket.subLevelKey = dataPacket.subLevelKey;
 				headerPacket.itemKey = dataPacket.itemKey;
@@ -304,11 +304,15 @@ public:
 		}
 	}
 	
-	virtual bool sync(Buffer &buf, const ItemHeader::TTime curTime)
+	virtual bool sync(Buffer &buf, const ItemHeader::TTime curTime, bool force)
 	{
 		AutoMutex autoSync;
-		if (!autoSync.tryLock(&_diskLock)) // some process already working with this level
-			return false;
+		if (force) {
+			autoSync.lock(&_diskLock);
+		} else {
+			if (!autoSync.tryLock(&_diskLock)) // some process already working with this level
+				return false;
+		}
 		
 		TDataPacketVector dataPackets;
 		THeaderPacketVector headerPackets;
@@ -318,17 +322,16 @@ public:
 		std::swap(headerPackets, _headerPackets);
 		_packetSync.unLock();
 
-		if (dataPackets.empty() && headerPackets.empty()) // work ended
-			return true;
-		
-		if (!_openFiles(curTime))
-		{
-			log::Fatal::L("Can't open files for %s synchronization\n", _path.c_str());
-			throw std::exception();
+		if (!dataPackets.empty() || !headerPackets.empty()) {
+			if (!_openFiles(curTime)) {
+				log::Fatal::L("Can't open files for %s synchronization\n", _path.c_str());
+				throw std::exception();
+			}
+			_syncDataPackets(dataPackets, buf, curTime);
+			_syncHeaderPackets(headerPackets, buf, curTime);
 		}
-		_syncDataPackets(dataPackets, buf, curTime);
-		_syncHeaderPackets(headerPackets, buf, curTime);
-
+		if (force)
+			_closeFiles();
 		return true;
 	}
 	typedef unordered_multimap<TItemKey, HeaderCMDData> THeaderCMDDataHash;
@@ -377,8 +380,7 @@ public:
 	virtual bool pack(Buffer &buf, const ItemHeader::TTime curTime)
 	{
 		AutoMutex autoSync(&_diskLock);
-		_dataFile.close();
-		_headerFile.close();
+		_closeFiles();
 		
 		TPathVector headersFileList;
 		TPathVector dataFileList;
@@ -491,6 +493,11 @@ private:
 
 	struct DataPacket
 	{
+		DataPacket(const TServerID serverID)
+			: serverID(serverID)
+		{
+		}
+		TServerID serverID;
 		TSubLevelKey subLevelKey;
 		TItemKey itemKey;
 		TItemSharedPtr item;
@@ -502,6 +509,12 @@ private:
 	
 	struct HeaderPacket
 	{
+		HeaderPacket(const TServerID serverID)
+			: serverID(serverID)
+		{
+		}
+
+		TServerID serverID;
 		EIndexCMDType::EIndexCMDType cmd;
 		TSubLevelKey subLevelKey;
 		TItemKey itemKey;
@@ -552,6 +565,11 @@ private:
 				return false;
 		}
 		return true;
+	}
+	void _closeFiles()
+	{
+		_dataFile.close();
+		_headerFile.close();
 	}
 	
 	void _syncHeaderPackets(THeaderPacketVector &headerPackets, Buffer &buf, const ItemHeader::TTime curTime)
@@ -610,7 +628,7 @@ private:
 			while (!buf.isEnded()) {
 				buf.get(cmd);
 				if ((cmd != EIndexCMDType::TOUCH) && (cmd != EIndexCMDType::REMOVE)) {
-					log::Error::L("Bad cmd type %u in data\n", cmd);
+					log::Error::L("Bad cmd type %u in header\n", cmd);
 					return false;
 				}
 				buf.get(&itemHeader, sizeof(itemHeader));
@@ -671,6 +689,7 @@ private:
 	void _syncDataEntryHeader(Buffer &buf, const ItemHeader &itemHeader, const TSubLevelKey &subLevelKey, 
 		const TItemKey &itemKey)
 	{
+		buf.add(EIndexCMDType::PUT);
 		buf.add(&itemHeader, sizeof(itemHeader));
 		buf.add(subLevelKey);
 		buf.add(itemKey);
@@ -705,11 +724,9 @@ private:
 	
 	void _syncDataPackets(TDataPacketVector &workPackets, Buffer &buf, const ItemHeader::TTime curTime)
 	{
-		EIndexCMDType::EIndexCMDType cmd = EIndexCMDType::PUT;
 		buf.clear();
 		for (auto dataPacket = workPackets.begin(); dataPacket != workPackets.end(); dataPacket++) {
 			if (dataPacket->item->isValid(curTime)) {
-				buf.add(cmd);
 				const ItemHeader &itemHeader = dataPacket->item->header();
 				_syncDataEntryHeader(buf, itemHeader, dataPacket->subLevelKey, dataPacket->itemKey);
 				buf.add(dataPacket->item->data(), itemHeader.size);
@@ -768,6 +785,11 @@ private:
 		catch (Buffer::Error &er)
 		{
 			log::Fatal::L("Catch error in data file %s\n", path);
+			return false;
+		}
+		catch (std::exception &er)
+		{
+			log::Fatal::L("Catch std::exception in data file %s\n", path);
 			return false;
 		}
 		return true;
@@ -974,8 +996,8 @@ TopLevelIndex *TopLevelIndex::create(
 }
 
 Index::Index(const std::string &path)
-	: _path(path), _status(0), _subLevelKeyType(KEY_INT32), _itemKeyType(KEY_INT64), 
-	_timeThread(5 * 60) // minutes tic time
+	: _serverID(0), _replicationLogKeepTime(0), _path(path), _status(0), _subLevelKeyType(KEY_INT32), 
+	_itemKeyType(KEY_INT64), _timeThread(5 * 60) // minutes tic time
 {
 	Directory dir(path.c_str());
 	BString topLevelPath;
@@ -1046,7 +1068,7 @@ bool Index::sync(const ItemHeader::TTime curTime)
 	
 	Buffer buf(MAX_BUF_SIZE * 1.1); // to prevent resizing
 	for (auto topLevel = indexCopy.begin(); topLevel != indexCopy.end(); topLevel++) {
-		if (!topLevel->second->sync(buf, curTime))
+		if (!topLevel->second->sync(buf, curTime, false))
 			return false;
 	}
 	return true;
@@ -1200,8 +1222,11 @@ bool Index::create(const std::string &level, const EKeyType subLevelKeyType, con
 	return true;
 }
 
+Mutex Index::_hourlySync;
+
 bool Index::hour(fl::chrono::ETime &curTime)
 {
+	AutoMutex autoSync(&_hourlySync);
 	log::Info::L("Hourly routines started\n");
 	clearOld(curTime.unix());
 	pack(curTime.unix());
@@ -1271,11 +1296,33 @@ void IndexSyncThread::run()
 		}
 		curTime.update();
 		for (auto level = workItems.begin(); level != workItems.end(); level++) {
-			if (!(*level)->sync(buf, curTime.unix()))	{
+			if (!(*level)->sync(buf, curTime.unix(), false))	{
 				_sync.lock();
 				_needSyncLevels.push_back(*level);
 				_sync.unLock();
 			}
 		}
+	}
+}
+
+bool Index::startReplicationLog(const TServerID serverID, const u_int32_t replicationLogKeepTime)
+{
+	_serverID = serverID;
+	_replicationLogKeepTime = replicationLogKeepTime;
+	return false;
+}
+
+void Index::exitFlush()
+{
+	log::Error::L("Index %s flushing\n", _path.c_str());
+	sleep(1); // wait for finishing commands
+	
+	_hourlySync.lock();
+	_sync.lock();
+	fl::chrono::Time curTime;
+	Buffer buf(MAX_BUF_SIZE + 1);
+	for (auto topLevel = _index.begin(); topLevel != _index.end(); topLevel++) {
+		curTime.update();
+		topLevel->second->sync(buf, curTime.unix(), true);
 	}
 }
