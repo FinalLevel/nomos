@@ -24,19 +24,23 @@ namespace fl {
 		
 		const char * const DEFAULT_CONFIG = "./etc/nomos.cnf";
 		const size_t MAX_BUF_SIZE = 300000;
+		const size_t MAX_ITEM_SIZE = 300000;
+		const size_t MAX_REPLICATION_BUFFER = MAX_BUF_SIZE + (MAX_ITEM_SIZE * 2);
 		const size_t MAX_TOP_LEVEL_NAME_LENGTH = 16;
 		const size_t MAX_FILE_SIZE = 64 * 1024 * 1024; // 100Mb
 		
 		const double MIN_SYNC_TOUCH_TIME_PERCENT = 0.1; // 10 percent
 		const int MIN_SYNC_PUT_UPDATE_TIME = 5 * 60; // 5 minutes
 		const int DEFAULT_SOCKET_TIMEOUT = 60;
-		const u_int32_t DEFAULT_CMD_PORT = 7007;
+		const uint32_t DEFAULT_CMD_PORT = 7007;
 		const size_t DEFAULT_SOCKET_QUEUE_LENGTH = 10000;
 		const size_t EPOLL_WORKER_STACK_SIZE = 100000;
 		const size_t DEFAULT_WORKERS_COUNT = 2;
 		
 		const size_t DEFAULT_BUFFER_SIZE = 32000;
 		const size_t DEFAULT_MAX_FREE_BUFFERS = 500;
+		
+		const uint32_t MAX_REPLICATION_FILE_SIZE = 1000000000; // 1GB
 		
 		class Config
 		{
@@ -102,6 +106,18 @@ namespace fl {
 			{
 				return _syncThreadsCount;
 			}
+			TServerID serverID() const
+			{
+				return _serverID;
+			}
+			uint32_t replicationLogKeepTime() const
+			{
+				return _replicationLogKeepTime;
+			}
+			const std::string &replicationLogPath() const
+			{
+				return _replicationLogPath;
+			}
 			
 		private:
 			void _parseNetworkParams(boost::property_tree::ptree &pt);
@@ -126,6 +142,7 @@ namespace fl {
 			
 			uint32_t _syncThreadsCount;
 			TServerID _serverID;
+			std::string _replicationLogPath;
 			uint32_t _replicationLogKeepTime;
 			uint32_t _replicationPort;
 			Socket _replicationSocket;

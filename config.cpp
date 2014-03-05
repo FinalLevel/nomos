@@ -114,7 +114,12 @@ void Config::_parseReplicationParams(boost::property_tree::ptree &pt)
 		printf("nomos-server.serverID can't be zero\n");
 		throw std::exception();
 	}
-	
+	_replicationLogPath = pt.get<decltype(_replicationLogPath)>("nomos-server.replicationLogPath", "");
+	if (_replicationLogPath.empty())
+	{
+		printf("nomos-server.replicationLogPath can't be empty\n");
+		throw std::exception();
+	}
 	_replicationPort = pt.get<decltype(_replicationPort)>("nomos-server.replicationPort", 0);
 	if (!_replicationPort) {
 		printf("nomos-server.replicationPort can't be zero\n");

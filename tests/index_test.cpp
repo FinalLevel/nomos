@@ -75,13 +75,14 @@ BOOST_AUTO_TEST_CASE( CreateIndex )
 		BOOST_CHECK(index.create("test,Level", KEY_INT32, KEY_STRING) == false);
 		BOOST_CHECK(index.create("09-_Level", KEY_INT32, KEY_STRING));
 		BOOST_CHECK(index.create("09-_Level", KEY_INT32, KEY_INT64) == false);
+		BOOST_CHECK(index.create(".Level", KEY_INT32, KEY_INT64));
 		
 		BOOST_CHECK(index.create("testLevel2", Index::stringToType("INT32"), Index::stringToType("INT64")));
 		
 		BOOST_CHECK_THROW(Index::stringToType("UNKNOWN"), std::exception);
 		
 		Index indexLoad(testPath.path());
-		BOOST_CHECK(indexLoad.size() == 3);
+		BOOST_CHECK(indexLoad.size() == 4);
 	);
 }
 
@@ -398,6 +399,42 @@ BOOST_AUTO_TEST_CASE( testIndexPackUnkownCMDBug )
 		BOOST_CHECK(getData == TEST_DATA);
 	);
 }	
+
+BOOST_AUTO_TEST_CASE (testIndexReplicationLog)
+{
+	TestIndexPath testPath;
+	TestIndexPath binLogPath;
+	Time curTime;
+	const char TEST_DATA[] = "1234567";	
+	try
+	{
+		Index index(testPath.path());
+		BOOST_REQUIRE(index.startReplicationLog(1, 3600, binLogPath.path()));
+		
+		BOOST_CHECK(index.create("testLevel", KEY_INT32, KEY_STRING));
+		
+		TItemSharedPtr item(new Item(TEST_DATA, sizeof(TEST_DATA) - 1, curTime.unix() + 1, curTime.unix()));
+		BOOST_CHECK(index.put("testLevel", "1", "testKey", item));
+		BOOST_CHECK(index.touch("testLevel", "1", "testKey", 3600, curTime.unix()));
+		BOOST_CHECK(index.sync(curTime.unix()));
+		
+		BString data;
+		Buffer buffer;
+		TReplicationLogNumber number = 1;
+		uint32_t seek = 0;
+		BOOST_CHECK(index.getFromReplicationLog(2, data, buffer, number, seek));
+		BOOST_CHECK(data.size() == 119); // check data sizes
+
+		data.clear();
+		BOOST_CHECK(index.getFromReplicationLog(1, data, buffer, number, seek));
+		BOOST_CHECK(data.size() == 0);
+	}
+	catch (...)
+	{
+		BOOST_CHECK_NO_THROW(throw);
+	}
+	
+}
 
 
 BOOST_AUTO_TEST_SUITE_END()

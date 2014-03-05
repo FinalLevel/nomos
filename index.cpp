@@ -21,8 +21,8 @@ using fl::fs::Directory;
 using fl::fs::File;
 using namespace fl::utils;
 
-TopLevelIndex::TopLevelIndex(Index *index, const std::string &path, const MetaData &md)
-	: _index(index), _path(path), _md(md)
+TopLevelIndex::TopLevelIndex(const std::string &level, Index *index, const std::string &path, const MetaData &md)
+	: _level(level), _index(index), _path(path), _md(md)
 {
 }
 
@@ -168,8 +168,8 @@ class MemmoryTopLevelIndex : public TopLevelIndex
 public:
 	typedef u_int16_t TSliceCount;
 	static const TSliceCount ITEM_DEFAULT_SLICES_COUNT = 10;
-	MemmoryTopLevelIndex(Index *index, const std::string &path, const MetaData &md)
-		: TopLevelIndex(index, path, md), _slicesCount(ITEM_DEFAULT_SLICES_COUNT)
+	MemmoryTopLevelIndex(const std::string &level, Index *index, const std::string &path, const MetaData &md)
+		: TopLevelIndex(level, index, path, md), _slicesCount(ITEM_DEFAULT_SLICES_COUNT)
 	{
 
 	}
@@ -571,22 +571,56 @@ private:
 		_dataFile.close();
 		_headerFile.close();
 	}
+
+	void _addReplicationPacketHeader(Buffer &buf)
+	{
+		buf.addSpace(sizeof(ReplicationPacketHeader));
+		buf.add(_level);
+	}
+	
+	void _saveReplicationPacket(Buffer &buf, const TServerID curServerID)
+	{
+		ReplicationPacketHeader &rph = (*(ReplicationPacketHeader*)buf.mapBuffer(sizeof(ReplicationPacketHeader)));
+		rph.md = _md;
+		rph.packetSize = buf.writtenSize() - sizeof(ReplicationPacketHeader);
+		rph.serverID = curServerID;
+		_index->addToReplicationLog(buf);
+	}
 	
 	void _syncHeaderPackets(THeaderPacketVector &headerPackets, Buffer &buf, const ItemHeader::TTime curTime)
 	{
 		buf.clear();
-		for (auto packet = headerPackets.begin(); packet != headerPackets.end(); packet++) {
+		Buffer::TSize replicationHeaderEnd = 0;
+		TServerID curServerID = 0;
+		if (_index->isReplicating())	{
+			_addReplicationPacketHeader(buf);
+			replicationHeaderEnd = buf.writtenSize();
+		}
+		for (auto packet = headerPackets.begin(); packet != headerPackets.end(); ) {
 			buf.add(packet->cmd);
 			buf.add(&packet->itemHeader, sizeof(packet->itemHeader));
 			buf.add(packet->subLevelKey);
 			buf.add(packet->itemKey);
-			if ((buf.writtenSize() > MAX_BUF_SIZE) || ((packet + 1) == headerPackets.end())) {
+			
+			packet++;
+			if ((buf.writtenSize() > MAX_BUF_SIZE) || (packet == headerPackets.end()) ||
+				(curServerID && (curServerID != packet->serverID))
+			) {
 				if (!buf.empty()) {
-					if (_headerFile.write(buf.begin(), buf.writtenSize()) != static_cast<ssize_t>(buf.writtenSize())) { // skip 
+					ssize_t needWrite = buf.writtenSize() - replicationHeaderEnd;
+					if (_headerFile.write(buf.begin() + replicationHeaderEnd, needWrite) != needWrite) { // skip 
 						log::Fatal::L("Can't sync %s\n", _path.c_str());
 						throw std::exception();
 					};
-					buf.clear();
+					if (replicationHeaderEnd > 0) {
+						_saveReplicationPacket(buf, curServerID);
+						curServerID = packet->serverID;
+						buf.clear();
+						_addReplicationPacketHeader(buf);
+						replicationHeaderEnd = buf.writtenSize();
+					}
+					else
+						buf.clear();
 				}
 			}
 		}
@@ -724,19 +758,34 @@ private:
 	
 	void _syncDataPackets(TDataPacketVector &workPackets, Buffer &buf, const ItemHeader::TTime curTime)
 	{
+		Buffer::TSize replicationHeaderEnd = 0;
+		TServerID curServerID = 0;
 		buf.clear();
-		for (auto dataPacket = workPackets.begin(); dataPacket != workPackets.end(); dataPacket++) {
+		for (auto dataPacket = workPackets.begin(); dataPacket != workPackets.end(); ) {
 			if (dataPacket->item->isValid(curTime)) {
+				if (_index->isReplicating()) {
+					if (buf.empty())	{
+						_addReplicationPacketHeader(buf);
+						replicationHeaderEnd = buf.writtenSize();
+					}
+					curServerID = dataPacket->serverID;
+				}
 				const ItemHeader &itemHeader = dataPacket->item->header();
 				_syncDataEntryHeader(buf, itemHeader, dataPacket->subLevelKey, dataPacket->itemKey);
 				buf.add(dataPacket->item->data(), itemHeader.size);
 			}
-			if ((buf.writtenSize() > MAX_BUF_SIZE) || ((dataPacket + 1) == workPackets.end())) {
+			dataPacket++;
+			if ((buf.writtenSize() > MAX_BUF_SIZE) || (dataPacket == workPackets.end()) ||
+				(curServerID && (curServerID != dataPacket->serverID))
+			) {
 				if (!buf.empty()) {
-					if (_dataFile.write(buf.begin(), buf.writtenSize()) != static_cast<ssize_t>(buf.writtenSize())) { // skip 
+					ssize_t needWrite = buf.writtenSize() - replicationHeaderEnd;
+					if (_dataFile.write(buf.begin() + replicationHeaderEnd,  needWrite) != needWrite) { // skip 
 						log::Fatal::L("Can't sync %s\n", _path.c_str());
 						throw std::exception();
 					};
+					if (replicationHeaderEnd > 0)
+						_saveReplicationPacket(buf, curServerID);
 					buf.clear();
 				}
 			}
@@ -794,7 +843,7 @@ private:
 		}
 		return true;
 	}
-	
+
 	bool _packDataFile(const char *path, Buffer &buf, Buffer &writeBuffer, const ItemHeader::TTime curTime,
 		File &packedFile, THeaderCMDIndexHash &removeTouchIndex, TPathVector &createdFiles, TPathVector &packedFileList)
 	{
@@ -911,18 +960,18 @@ struct TKeyType<KEY_INT64>
 };
 
 template <template<typename TSubLevelKey, typename TItemKey> class TIndexClass, typename TSubLevelKey>
-TopLevelIndex *createTopLevelIndex(
-	const EKeyType itemKeyType, Index *index, const std::string &path, const TopLevelIndex::MetaData &md
+TopLevelIndex *createTopLevelIndex(const EKeyType itemKeyType, const std::string &level, Index *index, 
+	const std::string &path, const TopLevelIndex::MetaData &md
 )
 {
 	switch (itemKeyType) 
 	{
 	case KEY_STRING:
-		return new TIndexClass<TSubLevelKey, TKeyType<KEY_STRING>::type>(index, path, md);
+		return new TIndexClass<TSubLevelKey, TKeyType<KEY_STRING>::type>(level, index, path, md);
 	case KEY_INT32:
-		return new TIndexClass<TSubLevelKey, TKeyType<KEY_INT32>::type>(index, path, md);
+		return new TIndexClass<TSubLevelKey, TKeyType<KEY_INT32>::type>(level, index, path, md);
 	case KEY_INT64:
-		return new TIndexClass<TSubLevelKey, TKeyType<KEY_INT64>::type>(index, path, md);
+		return new TIndexClass<TSubLevelKey, TKeyType<KEY_INT64>::type>(level, index, path, md);
 	};
 	return  NULL;
 }
@@ -930,6 +979,7 @@ template <template<typename TSubLevelKey, typename TItemKey> class TIndexClass>
 TopLevelIndex *createTopLevelIndex(
 	const EKeyType subLevelType, 
 	const EKeyType itemKeyType, 
+	const std::string &level,
 	Index *index,
 	const std::string &path, 
 	const TopLevelIndex::MetaData &md
@@ -938,16 +988,16 @@ TopLevelIndex *createTopLevelIndex(
 	switch (subLevelType)
 	{
 		case KEY_STRING:
-			return createTopLevelIndex<TIndexClass, TKeyType<KEY_STRING>::type>(itemKeyType, index, path, md);
+			return createTopLevelIndex<TIndexClass, TKeyType<KEY_STRING>::type>(itemKeyType, level, index, path, md);
 		case KEY_INT32:
-			return createTopLevelIndex<TIndexClass, TKeyType<KEY_INT32>::type>(itemKeyType, index, path, md);
+			return createTopLevelIndex<TIndexClass, TKeyType<KEY_INT32>::type>(itemKeyType, level, index, path, md);
 		case KEY_INT64:
-			return createTopLevelIndex<TIndexClass, TKeyType<KEY_INT64>::type>(itemKeyType, index, path, md);
+			return createTopLevelIndex<TIndexClass, TKeyType<KEY_INT64>::type>(itemKeyType, level, index, path, md);
 	};
 	return  NULL;
 }
 
-TopLevelIndex *TopLevelIndex::createFromDirectory(Index *index, const std::string &path)
+TopLevelIndex *TopLevelIndex::createFromDirectory(const std::string &level, Index *index, const std::string &path)
 {
 	BString metFileName;
 	_formMetaFileName(path, metFileName);
@@ -961,11 +1011,12 @@ TopLevelIndex *TopLevelIndex::createFromDirectory(Index *index, const std::strin
 		log::Error::L("Cannot read from metadata file %s\n", metFileName.c_str());
 		return NULL;
 	}
-	return createTopLevelIndex<MemmoryTopLevelIndex>(
-					static_cast<EKeyType>(md.subLevelKeyType), static_cast<EKeyType>(md.itemKeyType), index, path, md);
+	return createTopLevelIndex<MemmoryTopLevelIndex>(static_cast<EKeyType>(md.subLevelKeyType), \
+		static_cast<EKeyType>(md.itemKeyType), level, index, path, md);
 }
 
 TopLevelIndex *TopLevelIndex::create(
+	const std::string &level,
 	Index *index,
 	const std::string &path, 
 	const EKeyType subLevelKeyType, 
@@ -992,25 +1043,28 @@ TopLevelIndex *TopLevelIndex::create(
 		return NULL;
 	}
 	
-	return createTopLevelIndex<MemmoryTopLevelIndex>(subLevelKeyType, itemKeyType, index, path, md);
+	return createTopLevelIndex<MemmoryTopLevelIndex>(subLevelKeyType, itemKeyType, level, index, path, md);
 }
 
 Index::Index(const std::string &path)
-	: _serverID(0), _replicationLogKeepTime(0), _path(path), _status(0), _subLevelKeyType(KEY_INT32), 
-	_itemKeyType(KEY_INT64), _timeThread(5 * 60) // minutes tic time
+	: _serverID(0), _path(path), _replicationLogKeepTime(0), _status(0),
+	_subLevelKeyType(KEY_INT32), _itemKeyType(KEY_INT64), _timeThread(5 * 60) // minutes tic time
 {
 	Directory dir(path.c_str());
 	BString topLevelPath;
 	while (dir.next()) {
-		if (dir.name()[0] == '.') // skip
+		if (!dir.isDirectory()) // skip files
 			continue;
+		if (dir.name()[0] == '.' && (dir.name()[1] == '.' || dir.name()[1] == 0)) // skip
+			continue;
+		std::string levelName(dir.name());
 		topLevelPath.sprintfSet("%s/%s", path.c_str(), dir.name());
-		TopLevelIndex *topLevelIndex = TopLevelIndex::createFromDirectory(this, topLevelPath.c_str());
+		TopLevelIndex *topLevelIndex = TopLevelIndex::createFromDirectory(levelName, this, topLevelPath.c_str());
 		if (!topLevelIndex) {
 			log::Error::L("Cannot load TopLevelIndex %s\n", topLevelPath.c_str());
 			continue;
 		}
-		_index.emplace(std::string(dir.name()), TTopLevelIndexPtr(topLevelIndex));
+		_index.emplace(levelName, TTopLevelIndexPtr(topLevelIndex));
 	}
 	log::Info::L("Loaded %u top indexes\n", _index.size());
 }
@@ -1213,7 +1267,7 @@ bool Index::create(const std::string &level, const EKeyType subLevelKeyType, con
 		log::Error::L("Cannot create directory for a new top level %s\n", path.c_str());
 		return false;
 	}
-	TopLevelIndex *topLevelIndex = TopLevelIndex::create(this, path.c_str(), subLevelKeyType, itemKeyType);
+	TopLevelIndex *topLevelIndex = TopLevelIndex::create(level, this, path.c_str(), subLevelKeyType, itemKeyType);
 	if (!topLevelIndex)	{
 		log::Error::L("Cannot create new TopLevelIndex %s\n", path.c_str());
 		return false;
@@ -1305,12 +1359,276 @@ void IndexSyncThread::run()
 	}
 }
 
-bool Index::startReplicationLog(const TServerID serverID, const u_int32_t replicationLogKeepTime)
+bool Index::startReplicationLog(const TServerID serverID, const u_int32_t replicationLogKeepTime, 
+	const std::string &replicationLogPath)
 {
+	if (!replicationLogKeepTime) // replication is turned off
+		return true;
+	
 	_serverID = serverID;
+	_replicationLogPath = replicationLogPath;
 	_replicationLogKeepTime = replicationLogKeepTime;
-	return false;
+	
+	if (!_openReplicationFiles())
+		return false;
+	return _openCurrentReplicationLog();
 }
+
+const std::string Index::REPLICATION_FILE_PREFIX = "nomos_bin_";
+
+Index::ReplicationLog::ReplicationLog(const TReplicationLogNumber number, const char *fileName)
+	: _number(number), _version(CURRENT_VERSION), _fileName(fileName), _fileSize(0)
+{
+}
+
+bool Index::_sortNumber(const TReplicationLogPtr &a, const TReplicationLogPtr &b)
+{
+	return a->number() < b->number();
+}
+
+bool Index::ReplicationLog::openForRead()
+{
+	if (!_readFd.open(_fileName.c_str(), O_RDONLY))
+		return false;
+	if (!_checkHeader(_readFd))
+		return false;
+	_fileSize = _readFd.fileSize();
+	return true;
+}
+
+bool Index::ReplicationLog::_checkHeader(File &fd)
+{
+	if (!fd.read(&_version, sizeof(_version)))
+	{
+		log::Error::L("Can't read replication log version %s\n", _fileName.c_str());
+		return false;
+	}
+	TReplicationLogNumber number;
+	if (!fd.read(&number, sizeof(number)))
+	{
+		log::Error::L("Can't read replication log number %s\n", _fileName.c_str());
+		return false;
+	}
+	if (number != _number)
+	{
+		log::Error::L("Can't read replication log number %x is different than %x (%s)\n", number, _number, 
+			_fileName.c_str());
+		return false;
+	}
+	return true;
+}
+
+
+bool Index::ReplicationLog::openForWrite()
+{
+	if (!_writeFd.open(_fileName.c_str(), O_RDWR | O_CREAT))
+		return false;
+	if (_writeFd.fileSize()) {
+		if (!_checkHeader(_writeFd))
+			return false;
+	} else { // need write header
+		if (!_writeFd.write(&_version, sizeof(_version))) {
+			log::Error::L("Can't write replication log version %s\n", _fileName.c_str());
+			return false;
+		}
+		if (!_writeFd.write(&_number, sizeof(_number))) {
+			log::Error::L("Can't write replication log number %s\n", _fileName.c_str());
+			return false;
+		}
+	}
+	_fileSize = _writeFd.seek(0, SEEK_END);
+	return true;
+}
+
+const bool Index::ReplicationLog::canFit(const uint32_t size)
+{
+	if (_fileSize + size > MAX_REPLICATION_FILE_SIZE)
+		return false;
+	else
+		return true;
+}
+
+void Index::ReplicationLog::save(Buffer &buffer)
+{
+	AutoReadWriteLockWrite autoWriteLock(&_sync);
+	
+	if (_writeFd.write(buffer.begin(), buffer.writtenSize()) != (ssize_t)buffer.writtenSize()) {
+		log::Error::L("Can't write data to replication log %s\n", _fileName.c_str());
+		throw std::exception();
+	}
+	_fileSize += buffer.writtenSize();
+}
+
+bool Index::ReplicationLog::read(const TServerID serverID, BString &data, Buffer &buffer, uint32_t &seek)
+{
+	if (seek == 0)
+		seek += (sizeof(_version) + sizeof(_number));
+	buffer.clear();
+	
+	AutoReadWriteLockRead autoReadLock(&_sync);
+	ssize_t leftRead = _fileSize - seek;
+	while (leftRead > 0)
+	{
+		ssize_t readChunk = MAX_REPLICATION_BUFFER - 1;
+		if (readChunk > leftRead)
+			readChunk = leftRead;
+		if (_readFd.pread(buffer.reserveBuffer(readChunk), readChunk, seek) != readChunk)
+			return false;
+		seek += readChunk;
+		leftRead -= readChunk;
+		
+		size_t lastOkBlock = 0;
+		try
+		{
+			while (buffer.readPos() < buffer.writtenSize())
+			{
+				lastOkBlock = buffer.readPos();
+				TopLevelIndex::ReplicationPacketHeader &rph = 
+					*(TopLevelIndex::ReplicationPacketHeader*)buffer.mapBuffer(sizeof(TopLevelIndex::ReplicationPacketHeader));
+				buffer.skip(rph.packetSize); // check if the packet has read fully 
+				if (rph.serverID == serverID)
+					continue;
+				else {
+					buffer.seekReadPos(lastOkBlock);
+					auto addData = sizeof(TopLevelIndex::ReplicationPacketHeader) + rph.packetSize;
+					data.add((char*)buffer.mapBuffer(addData), addData);
+					if (data.size() > (BString::TSize)MAX_BUF_SIZE)
+					{
+						seek += buffer.readPos();
+						return true;
+					}
+				}
+			}
+			seek += buffer.readPos();
+			leftRead -= buffer.readPos();
+		}
+		catch (Buffer::Error &er)
+		{
+			if (leftRead == 0) {// all read and receive error
+				log::Error::L("Catch Buffer exception %s lastSeek %u\n", _fileName.c_str(), seek);
+				return false;
+			}
+			if (lastOkBlock == 0) {
+				log::Error::L("Catch Buffer exception in first block %s lastSeek %u\n", _fileName.c_str(), seek);
+				return false;
+			}
+			seek += lastOkBlock;
+			leftRead -= lastOkBlock;
+		}
+		buffer.clear();
+	}
+	return true;
+}
+
+bool Index::_openCurrentReplicationLog()
+{
+	if (_currentReplicationLog.get())
+	{
+		if (!_currentReplicationLog->openForWrite())
+			return false;
+		log::Info::L("Open bin log %s for writing, current position is %u\n", _currentReplicationLog->fileName().c_str(), 
+			_currentReplicationLog->fileSize());
+		return true;
+	}
+	TReplicationLogNumber number = 1;
+	if (!_replicationLogFiles.empty())
+		number = _replicationLogFiles.back()->number() + 1;
+	
+	BString fileName;
+	fileName.sprintfSet("%s/%s%u_%+08x", _replicationLogPath.c_str(), REPLICATION_FILE_PREFIX.c_str(), _serverID, number);
+	TReplicationLogPtr rl(new ReplicationLog(number, fileName.c_str()));
+	if (!rl->openForWrite())
+		return false;
+	if (!rl->openForRead())
+		return false;
+	log::Info::L("Create new bin log %s\n", fileName.c_str());
+	_currentReplicationLog = rl;
+	_replicationLogFiles.push_back(rl);
+	return true;
+}
+
+bool Index::_openReplicationFiles()
+{
+	try
+	{
+		BString fileName;
+		Directory dir(_replicationLogPath.c_str());
+		while (dir.next())
+		{
+			if (strncmp(dir.name(), REPLICATION_FILE_PREFIX.c_str(), REPLICATION_FILE_PREFIX.size()))
+				continue;
+			char *serverIDend;
+			TServerID serverID = strtoul(dir.name() + REPLICATION_FILE_PREFIX.size(), &serverIDend, 10);
+			if (serverID != _serverID)
+				continue;
+			if (*serverIDend != '_')
+				continue;
+			TReplicationLogNumber number = strtoul(serverIDend + 1, NULL, 16);
+			
+			fileName.sprintfSet("%s/%s", _replicationLogPath.c_str(), dir.name());
+			TReplicationLogPtr rl(new ReplicationLog(number, fileName.c_str()));
+			if (!rl->openForRead())
+				return false;
+			_replicationLogFiles.push_back(rl);
+		}
+		std::sort(_replicationLogFiles.begin(), _replicationLogFiles.end(), &_sortNumber);
+		if (!_replicationLogFiles.empty())
+			_currentReplicationLog = _replicationLogFiles.back();
+		log::Info::L("Found %u bin logs at %s\n", _replicationLogFiles.size(), _replicationLogPath.c_str());
+		return true;
+	}
+	catch (Directory::Error &er)
+	{
+		log::Error::L("Can't start replication from %s\n", _replicationLogPath.c_str());
+		return false;
+	}
+}
+
+void Index::addToReplicationLog(Buffer &buffer)
+{
+	if (!_replicationLogKeepTime)
+		return;
+	AutoMutex autoSync(&_replicationSync);
+	if (!_currentReplicationLog->canFit(buffer.writtenSize()))
+	{
+		_currentReplicationLog.reset();
+		if (!_openCurrentReplicationLog())
+			throw std::exception();
+	}
+	auto rl = _currentReplicationLog;
+	autoSync.unLock();
+	rl->save(buffer);
+}
+
+bool Index::getFromReplicationLog(const TServerID serverID, BString &data, Buffer &buffer, 
+	TReplicationLogNumber &startNumber, uint32_t &seek)
+{
+	AutoMutex autoSync(&_replicationSync);
+	auto repl = _replicationLogFiles.rbegin();
+	for (;  repl != _replicationLogFiles.rend(); repl++) {
+		if ((*repl)->number() == startNumber)
+			break;
+	}
+	if (repl == _replicationLogFiles.rend())
+	{
+		log::Error::L("[%s] Can't find log %u seek %u for server %u\n", _replicationLogPath.c_str(), startNumber, seek);
+		return false;
+	}
+	while (true)
+	{
+		if ((*repl)->haveData(seek))
+			break;
+		if (repl == _replicationLogFiles.rbegin())
+			return true;
+		repl++;
+		seek = 0;
+		startNumber = (*repl)->number();
+	}
+	auto rl = (*repl);
+	autoSync.unLock();
+	return 	rl->read(serverID, data, buffer, seek);
+}
+
 
 void Index::exitFlush()
 {

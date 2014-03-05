@@ -69,7 +69,8 @@ int main(int argc, char *argv[])
 			return -1;
 		index->setAutoCreate(config->isAutoCreate(), config->defaultSublevelKeyType(), config->defaultItemKeyType());
 		index->startThreads(config->syncThreadsCount());
-		
+		if (!index->startReplicationLog(config->serverID(), config->replicationLogKeepTime(), config->replicationLogPath()))
+			return -1;
 		NomosEvent::setInited(index.get());
 		setSignals();
 		workerGroup->waitThreads();

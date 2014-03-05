@@ -36,12 +36,15 @@
 #include "types.hpp"
 #include "time_thread.hpp"
 #include "cond_mutex.hpp"
+#include "read_write_lock.hpp"
 
 
 namespace fl {
 	namespace nomos {
 		using fl::threads::Mutex;
 		using fl::threads::AutoMutex;
+		using fl::threads::AutoReadWriteLockWrite;
+		using fl::threads::AutoReadWriteLockRead;
 		using fl::strings::BString;
 		using fl::fs::File;
 		using fl::utils::Buffer;
@@ -83,11 +86,19 @@ namespace fl {
 				uint8_t version;
 				uint8_t subLevelKeyType;
 				uint8_t itemKeyType;
-			};
-			TopLevelIndex(class Index *index, const std::string &path, const MetaData &md);
+			} __attribute__((packed));
 			
-			static TopLevelIndex *createFromDirectory(class Index *index, const std::string &path);
-			static TopLevelIndex *create(Index *index, const std::string &path, 
+			struct ReplicationPacketHeader
+			{
+				TServerID serverID; 
+				MetaData md;
+				uint32_t packetSize;
+			} __attribute__((packed));
+
+			TopLevelIndex(const std::string &level, class Index *index, const std::string &path, const MetaData &md);
+			
+			static TopLevelIndex *createFromDirectory(const std::string &level, class Index *index, const std::string &path);
+			static TopLevelIndex *create(const std::string &level, Index *index, const std::string &path, 
 				const EKeyType subLevelKeyType, const EKeyType itemKeyType);
 			virtual bool load(Buffer &buf, const ItemHeader::TTime curTime) = 0;
 			virtual TItemSharedPtr find(const std::string &subLevel, const std::string &key, 
@@ -101,6 +112,7 @@ namespace fl {
 			virtual bool sync(Buffer &buf, const ItemHeader::TTime curTime, bool force) = 0;
 			virtual bool pack(Buffer &buf, const ItemHeader::TTime curTime) = 0;
 		protected:
+			std::string _level;
 			class Index *_index;
 			std::string _path;
 			MetaData _md;
@@ -142,6 +154,8 @@ namespace fl {
 			typedef std::vector<TTopLevelIndexPtr> TTopLevelVector;
 			TTopLevelVector _needSyncLevels;
 		};
+		
+		typedef uint32_t TReplicationLogNumber;
 		
 		class Index
 		{
@@ -193,14 +207,79 @@ namespace fl {
 			{
 				return _serverID;
 			}
-			bool startReplicationLog(const TServerID serverID, const u_int32_t replicationLogKeepTime);
+			bool startReplicationLog(const TServerID serverID, const u_int32_t replicationLogKeepTime, 
+				const std::string &replicationLogPath);
+			
+			void addToReplicationLog(Buffer &buffer);
+			bool isReplicating()
+			{
+				return _replicationLogKeepTime > 0;
+			}
 			void exitFlush();
+			bool getFromReplicationLog(const TServerID serverID, BString &data, Buffer &buffer, 
+				TReplicationLogNumber &startNumber, uint32_t &seek); 
 		private:
 			static Mutex _hourlySync;
 			bool _checkLevelName(const std::string &name);
 			TServerID _serverID;
-			uint32_t _replicationLogKeepTime;
 			std::string _path;
+			
+			
+			uint32_t _replicationLogKeepTime;
+			std::string _replicationLogPath;
+			class ReplicationLog
+			{
+			public:
+				static const uint8_t CURRENT_VERSION = 1;
+				
+				ReplicationLog(const TReplicationLogNumber number, const char *fileName);
+				bool openForRead();
+				bool openForWrite();
+				TReplicationLogNumber number() const
+				{
+					return _number;
+				}
+				const std::string &fileName() const
+				{
+					return _fileName;
+				}
+				uint32_t fileSize() const
+				{
+					return _fileSize;
+				}
+				const bool haveData(const uint32_t seek) const
+				{
+					if (seek < _fileSize)
+						return true;
+					else
+						return false;
+				}
+				bool read(const TServerID serverID, BString &data, Buffer &buffer, uint32_t &seek);
+				const bool canFit(const uint32_t size);
+				void save(Buffer &buffer);
+				
+			private:
+				bool _checkHeader(File &fd);
+				TReplicationLogNumber _number;
+				u_int8_t _version;
+				std::string _fileName;
+				File _readFd;
+				uint32_t _fileSize;
+				File _writeFd;
+				fl::threads::ReadWriteLock _sync;
+			};
+			typedef std::shared_ptr<ReplicationLog>  TReplicationLogPtr;
+			TReplicationLogPtr _currentReplicationLog;
+			static bool _sortNumber(const TReplicationLogPtr &a, const TReplicationLogPtr &b);
+
+			typedef std::vector<TReplicationLogPtr> TReplicationLogVector;
+			TReplicationLogVector _replicationLogFiles;
+			bool _openReplicationFiles();
+			bool _openCurrentReplicationLog();
+			static const std::string REPLICATION_FILE_PREFIX;
+			Mutex _replicationSync;
+			
+			
 			typedef uint8_t TStatus;
 			TStatus _status;
 			static const TStatus ST_AUTO_CREATE = 0x1;

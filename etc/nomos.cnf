@@ -2,7 +2,7 @@
 log=/var/log/nomos
 logLevel=4
 logStdout=on
-dataPath=/var/lib/nomos
+dataPath=/var/lib/nomos/data
 listen=127.0.0.1
 port=7007
 
@@ -15,9 +15,9 @@ defaultItemKeyType=INT64
 syncThreadsCount=3
 
 serverID=1
-
 ; if replicationLogKeepTime is set to 0, replication will be turned off
 ; it can be set in hours (24h) or days (3d)
+replicationLogPath=/var/lib/nomos/binlog
 replicationLogKeepTime=24h
 replicationPort=7017
 
