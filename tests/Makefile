@@ -8,6 +8,7 @@ TEST_OBJ=index_test.o test.o $(NOMOS_OBJ)
 TEST_LIBS=-lboost_unit_test_framework-mt -lboost_filesystem-mt
 
 all: test
+	rm -rf /tmp/test_nomos_index_1*
 	./test
 
 test: $(TEST_OBJ)

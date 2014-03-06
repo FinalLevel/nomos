@@ -225,7 +225,7 @@ public:
 		{
 			if (lifeTime) 
 			{
-				_touch(headerPacket, item->second.get(), lifeTime, curTime);
+				_touch(headerPacket, item->second, lifeTime, curTime);
 				_index->addToSync(selfPointer);
 			}
 			return item->second;
@@ -254,7 +254,7 @@ public:
 		if (item == subLevel->second[sliceID].end())
 			return false;
 		else if (item->second->isValid(curTime)) {
-			_touch(headerPacket, item->second.get(), setTime, curTime);
+			_touch(headerPacket, item->second, setTime, curTime);
 			return true;
 		}	else {
 			subLevel->second[sliceID].erase(item);
@@ -322,14 +322,7 @@ public:
 		std::swap(headerPackets, _headerPackets);
 		_packetSync.unLock();
 
-		if (!dataPackets.empty() || !headerPackets.empty()) {
-			if (!_openFiles(curTime)) {
-				log::Fatal::L("Can't open files for %s synchronization\n", _path.c_str());
-				throw std::exception();
-			}
-			_syncDataPackets(dataPackets, buf, curTime);
-			_syncHeaderPackets(headerPackets, buf, curTime);
-		}
+		_syncPacketsToDisk(dataPackets, headerPackets, buf, curTime);
 		if (force)
 			_closeFiles();
 		return true;
@@ -453,6 +446,109 @@ public:
 			};
 		}
 	}
+	
+	virtual bool addFromAnotherServer(const TServerID serverID, Buffer &data, const Buffer::TSize endPacketPos, 
+		const ItemHeader::TTime curTime, Buffer &buffer)
+	{
+		ItemHeader itemHeader;
+		TSubLevelKey subLevelKey;
+		TItemKey itemKey;
+		
+		TDataPacketVector dataPackets;
+		THeaderPacketVector headerPackets;
+		
+		AutoMutex autoSync(&_sync);
+		while (data.readPos() < endPacketPos) {
+			EIndexCMDType::EIndexCMDType cmd;
+			_getEntryHeader(cmd, itemHeader, subLevelKey, itemKey, data);
+			if (!itemHeader.liveTo || (itemHeader.liveTo > curTime) || (cmd == EIndexCMDType::REMOVE)) {
+				auto subLevel = _subLevelItem.find(subLevelKey);
+				if (subLevel != _subLevelItem.end()) {
+					auto sliceID = _findSlice(itemKey);
+					auto item = subLevel->second[sliceID].find(itemKey);
+					if (item != subLevel->second[sliceID].end()) {
+						if (cmd == EIndexCMDType::REMOVE) {
+							if (itemHeader.timeTag.tag == item->second->header().timeTag.tag) {
+									item->second->setDeleted();
+									HeaderPacket hp(serverID);
+									hp.cmd = EIndexCMDType::REMOVE;
+									hp.subLevelKey = subLevelKey;
+									hp.itemKey = itemKey;
+									hp.itemHeader = item->second->header();
+									subLevel->second[sliceID].erase(item);	
+									headerPackets.push_back(hp);
+							}
+						}	else 	if (itemHeader.timeTag.tag > item->second->header().timeTag.tag) {
+							if (cmd == EIndexCMDType::TOUCH) {
+								item->second->setHeader(itemHeader);
+								HeaderPacket hp(serverID);
+								hp.cmd = EIndexCMDType::TOUCH;
+								hp.subLevelKey = subLevelKey;
+								hp.itemKey = itemKey;
+								hp.itemHeader = itemHeader;
+								hp.item = item->second;
+								headerPackets.push_back(hp);
+							} else if (cmd == EIndexCMDType::PUT) {
+								HeaderPacket hp(serverID);
+								hp.cmd = EIndexCMDType::REMOVE;
+								hp.subLevelKey = subLevelKey;
+								hp.itemKey = itemKey;
+								hp.itemHeader = item->second->header();
+								headerPackets.push_back(hp);
+
+								item->second.reset(new Item((char*)data.mapBuffer(itemHeader.size), itemHeader));
+								// remove old item
+								
+								DataPacket dataPacket(serverID);
+								dataPacket.subLevelKey = subLevelKey;
+								dataPacket.itemKey = itemKey;
+								dataPacket.item = item->second;
+								dataPackets.push_back(dataPacket);
+								continue;
+							}
+							else
+							{
+								log::Fatal::L("Receive unknown cmd from server %u\n", serverID);
+								return false;
+							}
+						}
+						data.skip(itemHeader.size);
+						continue;
+					}
+				}
+				// item not found or should be updated
+				switch (cmd)
+				{
+					case EIndexCMDType::REMOVE:
+					break;
+					case EIndexCMDType::TOUCH:
+					case EIndexCMDType::PUT: 
+					{
+						TItemSharedPtr oldItem;
+						TItemSharedPtr item(new Item((char*)data.mapBuffer(itemHeader.size), itemHeader));
+						_put(subLevelKey, itemKey, item, oldItem, false);
+						DataPacket dataPacket(serverID);
+						dataPacket.subLevelKey = subLevelKey;
+						dataPacket.itemKey = itemKey;
+						dataPacket.item = item;
+						dataPackets.push_back(dataPacket);
+						continue;
+					}
+					case EIndexCMDType::UNKNOWN:
+					{
+						log::Fatal::L("Receive unknown cmd from server %u\n", serverID);
+						return false;
+					}
+				}
+			}
+			data.skip(itemHeader.size);
+		}
+		autoSync.unLock();
+		AutoMutex autoDiskLock(&_diskLock);
+		_syncPacketsToDisk(dataPackets, headerPackets, buffer, curTime);
+		return true;
+	};
+	
 private:
 	TSliceCount _findSlice(const TItemKey &itemKey)
 	{
@@ -519,12 +615,27 @@ private:
 		TSubLevelKey subLevelKey;
 		TItemKey itemKey;
 		ItemHeader itemHeader;
+		TItemSharedPtr item;
 	};
 	
 	typedef std::vector<HeaderPacket> THeaderPacketVector;
 	THeaderPacketVector _headerPackets;
 	
-	void _touch(HeaderPacket &headerPacket, Item *item, const ItemHeader::TTime setTime, 
+	void _syncPacketsToDisk(TDataPacketVector &dataPackets, THeaderPacketVector &headerPackets, Buffer &buf, 
+		const ItemHeader::TTime curTime)
+	{
+		if (!dataPackets.empty() || !headerPackets.empty()) {
+			if (!_openFiles(curTime)) {
+				log::Fatal::L("Can't open files for %s synchronization\n", _path.c_str());
+				throw std::exception();
+			}
+			_syncDataPackets(dataPackets, buf, curTime);
+			_syncHeaderPackets(headerPackets, buf, curTime);
+		}
+	}
+
+	
+	void _touch(HeaderPacket &headerPacket, TItemSharedPtr &item, const ItemHeader::TTime setTime, 
 		const ItemHeader::TTime curTime)
 	{
 		ItemHeader::TTime liveTo = setTime;
@@ -536,7 +647,8 @@ private:
 		{
 			item->setLiveTo(liveTo, curTime);
 			headerPacket.itemHeader = itemHeader;
-			
+			if (_index->isReplicating())
+				headerPacket.item = item;
 			_packetSync.lock();
 			_headerPackets.push_back(headerPacket);
 			_packetSync.unLock();
@@ -587,40 +699,49 @@ private:
 		_index->addToReplicationLog(buf);
 	}
 	
+	
 	void _syncHeaderPackets(THeaderPacketVector &headerPackets, Buffer &buf, const ItemHeader::TTime curTime)
 	{
 		buf.clear();
-		Buffer::TSize replicationHeaderEnd = 0;
-		TServerID curServerID = 0;
-		if (_index->isReplicating())	{
-			_addReplicationPacketHeader(buf);
-			replicationHeaderEnd = buf.writtenSize();
-		}
 		for (auto packet = headerPackets.begin(); packet != headerPackets.end(); ) {
-			buf.add(packet->cmd);
-			buf.add(&packet->itemHeader, sizeof(packet->itemHeader));
-			buf.add(packet->subLevelKey);
-			buf.add(packet->itemKey);
+			_addEntryHeader(packet->cmd, packet->itemHeader, packet->subLevelKey, packet->itemKey, buf);
 			
 			packet++;
-			if ((buf.writtenSize() > MAX_BUF_SIZE) || (packet == headerPackets.end()) ||
-				(curServerID && (curServerID != packet->serverID))
-			) {
+			if ((buf.writtenSize() > MAX_BUF_SIZE) || (packet == headerPackets.end())) {
 				if (!buf.empty()) {
-					ssize_t needWrite = buf.writtenSize() - replicationHeaderEnd;
-					if (_headerFile.write(buf.begin() + replicationHeaderEnd, needWrite) != needWrite) { // skip 
+					ssize_t needWrite = buf.writtenSize();
+					if (_headerFile.write(buf.begin(), needWrite) != needWrite) { // skip 
 						log::Fatal::L("Can't sync %s\n", _path.c_str());
 						throw std::exception();
 					};
-					if (replicationHeaderEnd > 0) {
+					buf.clear();
+				}
+			}
+		}
+		
+		if (_index->isReplicating()) {
+			buf.clear();
+			TServerID curServerID = 0;
+			for (auto packet = headerPackets.begin(); packet != headerPackets.end(); ) {
+				if (buf.empty()) {
+					_addReplicationPacketHeader(buf);
+					curServerID = packet->serverID;
+				}
+				if (packet->cmd == EIndexCMDType::REMOVE)
+					packet->itemHeader.size = 0;
+				
+				_addEntryHeader(packet->cmd, packet->itemHeader, packet->subLevelKey, packet->itemKey, buf);
+				if (packet->itemHeader.size > 0) // full data need
+					buf.add(packet->item->data(), packet->itemHeader.size);
+				
+				packet++;
+				if ((buf.writtenSize() > MAX_BUF_SIZE) || (packet == headerPackets.end()) ||
+					(curServerID && (curServerID != packet->serverID))
+				) {
+					if (!buf.empty()) {
 						_saveReplicationPacket(buf, curServerID);
-						curServerID = packet->serverID;
 						buf.clear();
-						_addReplicationPacketHeader(buf);
-						replicationHeaderEnd = buf.writtenSize();
 					}
-					else
-						buf.clear();
 				}
 			}
 		}
@@ -660,15 +781,11 @@ private:
 			HeaderCMDData headerCMDData;
 			static THeaderCMDDataHash emptySubLevelIndex;
 			while (!buf.isEnded()) {
-				buf.get(cmd);
+				_getEntryHeader(cmd, itemHeader, subLevelKey, itemKey, buf);
 				if ((cmd != EIndexCMDType::TOUCH) && (cmd != EIndexCMDType::REMOVE)) {
 					log::Error::L("Bad cmd type %u in header\n", cmd);
 					return false;
 				}
-				buf.get(&itemHeader, sizeof(itemHeader));
-				buf.get(subLevelKey);
-				buf.get(itemKey);
-				
 				if (cmd == EIndexCMDType::REMOVE)
 					headerCMDData.liveTo = REMOVED_LIVE_TO;
 				else
@@ -720,27 +837,33 @@ private:
 	}
 
 	// two mirror functions
-	void _syncDataEntryHeader(Buffer &buf, const ItemHeader &itemHeader, const TSubLevelKey &subLevelKey, 
-		const TItemKey &itemKey)
+	void _addEntryHeader(EIndexCMDType::EIndexCMDType cmd, const ItemHeader &itemHeader, const TSubLevelKey &subLevelKey, 
+		const TItemKey &itemKey, Buffer &buf)
 	{
-		buf.add(EIndexCMDType::PUT);
+		buf.add(cmd);
 		buf.add(&itemHeader, sizeof(itemHeader));
 		buf.add(subLevelKey);
 		buf.add(itemKey);
+	}
+	
+	void _getEntryHeader(EIndexCMDType::EIndexCMDType &cmd, ItemHeader &itemHeader, TSubLevelKey &subLevelKey, 
+		TItemKey &itemKey, Buffer &buf)
+	{
+		buf.get(cmd);
+		buf.get(&itemHeader, sizeof(itemHeader));
+		buf.get(subLevelKey);
+		buf.get(itemKey);
 	}
 
 	bool _loadDataEntryHeader(Buffer &buf, ItemHeader &itemHeader, TSubLevelKey &subLevelKey, TItemKey &itemKey, 
 		THeaderCMDIndexHash &removeTouchIndex)
 	{
 		EIndexCMDType::EIndexCMDType cmd;
-		buf.get(cmd);
+		_getEntryHeader(cmd, itemHeader, subLevelKey, itemKey, buf);
 		if (cmd != EIndexCMDType::PUT) {
 			log::Error::L("Bad cmd type %u in data\n", cmd);
 			throw std::exception();
 		}
-		buf.get(&itemHeader, sizeof(itemHeader));
-		buf.get(subLevelKey);
-		buf.get(itemKey);
 		auto f = removeTouchIndex.find(subLevelKey);
 		if (f != removeTouchIndex.end()) {
 			auto itemRes = f->second.equal_range(itemKey);
@@ -767,11 +890,11 @@ private:
 					if (buf.empty())	{
 						_addReplicationPacketHeader(buf);
 						replicationHeaderEnd = buf.writtenSize();
+						curServerID = dataPacket->serverID;
 					}
-					curServerID = dataPacket->serverID;
 				}
 				const ItemHeader &itemHeader = dataPacket->item->header();
-				_syncDataEntryHeader(buf, itemHeader, dataPacket->subLevelKey, dataPacket->itemKey);
+				_addEntryHeader(EIndexCMDType::PUT, itemHeader, dataPacket->subLevelKey, dataPacket->itemKey, buf);
 				buf.add(dataPacket->item->data(), itemHeader.size);
 			}
 			dataPacket++;
@@ -882,7 +1005,7 @@ private:
 				bool changed = _loadDataEntryHeader(buf, itemHeader, subLevelKey, itemKey, removeTouchIndex);
 				if (!itemHeader.liveTo || (itemHeader.liveTo > curTime)) {
 					if (changed) { // need to rewrite
-						_syncDataEntryHeader(writeBuffer, itemHeader, subLevelKey, itemKey);
+						_addEntryHeader(EIndexCMDType::PUT, itemHeader, subLevelKey, itemKey, writeBuffer);
 						writeBuffer.add(buf.mapBuffer(itemHeader.size), itemHeader.size);
 						if (startSavePos)
 						{
@@ -1627,6 +1750,57 @@ bool Index::getFromReplicationLog(const TServerID serverID, BString &data, Buffe
 	auto rl = (*repl);
 	autoSync.unLock();
 	return 	rl->read(serverID, data, buffer, seek);
+}
+
+bool Index::addFromAnotherServer(const TServerID serverID, Buffer &data, const ItemHeader::TTime curTime, 
+	Buffer &buffer)
+{
+	try
+	{
+		std::string topLevelName;
+		while (data.readPos() < data.writtenSize())
+		{
+			TopLevelIndex::ReplicationPacketHeader &rph = 
+				*(TopLevelIndex::ReplicationPacketHeader*)data.mapBuffer(sizeof(TopLevelIndex::ReplicationPacketHeader));
+			if (rph.serverID == _serverID)
+			{
+				log::Warning::L("Server %u has received its packet from %u\n", _serverID, serverID);
+				data.skip(rph.packetSize);
+				continue;
+			}
+			Buffer::TSize curReadPos = data.readPos();
+			data.get(topLevelName);
+			AutoMutex autoSync(&_sync);
+			
+			auto f = _index.find(topLevelName);
+			if (f == _index.end()) {
+				autoSync.unLock();
+				if (!create(topLevelName, rph.md.subLevelKeyType, rph.md.itemKeyType))
+					return false;
+				autoSync.lock(&_sync);
+				f = _index.find(topLevelName);
+			} else{
+				if (f->second->md() != rph.md)
+				{
+					log::Fatal::L("Level's meta data mismatch %s/%s\n", _path.c_str(), topLevelName.c_str());
+					return false;
+				}
+			}
+			auto topLevel = f->second;
+			autoSync.unLock();
+			
+			Buffer::TSize endPacketPos = curReadPos + rph.packetSize;
+			if (!topLevel->addFromAnotherServer(serverID, data, endPacketPos, curTime, buffer))
+				return false;
+		}
+		return true;
+	}
+	catch (Buffer::Error &er)
+	{
+		log::Error::L("Catch Buffer exception in packet from server %u\n", serverID);
+		return false;
+	}
+	return false;
 }
 
 

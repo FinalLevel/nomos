@@ -406,34 +406,86 @@ BOOST_AUTO_TEST_CASE (testIndexReplicationLog)
 	TestIndexPath binLogPath;
 	Time curTime;
 	const char TEST_DATA[] = "1234567";	
+	BString data;
 	try
 	{
 		Index index(testPath.path());
 		BOOST_REQUIRE(index.startReplicationLog(1, 3600, binLogPath.path()));
 		
 		BOOST_CHECK(index.create("testLevel", KEY_INT32, KEY_STRING));
+		BOOST_CHECK(index.create("testLevel2", KEY_STRING, KEY_STRING));
 		
 		TItemSharedPtr item(new Item(TEST_DATA, sizeof(TEST_DATA) - 1, curTime.unix() + 1, curTime.unix()));
 		BOOST_CHECK(index.put("testLevel", "1", "testKey", item));
 		BOOST_CHECK(index.touch("testLevel", "1", "testKey", 3600, curTime.unix()));
+		
+		
+		TItemSharedPtr item2(new Item(TEST_DATA, sizeof(TEST_DATA) - 1, curTime.unix() + 1, curTime.unix()));
+		BOOST_CHECK(index.put("testLevel", "1", "testKey2", item2));
+		BOOST_CHECK(index.remove("testLevel", "1", "testKey2"));
+		
+		
+		TItemSharedPtr item3(new Item(TEST_DATA, sizeof(TEST_DATA) - 1, curTime.unix() + 1, curTime.unix()));
+		BOOST_CHECK(index.put("testLevel2", "testSubLevel", "testKey", item3));
+		
 		BOOST_CHECK(index.sync(curTime.unix()));
 		
-		BString data;
 		Buffer buffer;
 		TReplicationLogNumber number = 1;
 		uint32_t seek = 0;
 		BOOST_CHECK(index.getFromReplicationLog(2, data, buffer, number, seek));
-		BOOST_CHECK(data.size() == 119); // check data sizes
+		BOOST_CHECK(data.size() == 235); // check data sizes
 
-		data.clear();
-		BOOST_CHECK(index.getFromReplicationLog(1, data, buffer, number, seek));
-		BOOST_CHECK(data.size() == 0);
+		BString data2;
+		BOOST_CHECK(index.getFromReplicationLog(2, data2, buffer, number, seek));
+		BOOST_CHECK(data2.size() == 0);
+
+		data2.clear();
+		number = 1;
+		seek = 0;
+		BOOST_CHECK(index.getFromReplicationLog(1, data2, buffer, number, seek));
+		BOOST_CHECK(data2.size() == 0);
 	}
 	catch (...)
 	{
 		BOOST_CHECK_NO_THROW(throw);
 	}
 	
+	TestIndexPath testPath2;
+	TestIndexPath binLogPath2;
+	try
+	{
+		for (int i = 0; i < 2; i++) {
+			Index index(testPath2.path());
+			BOOST_REQUIRE(index.startReplicationLog(2, 3600, binLogPath2.path()));
+			Buffer bufData;
+			bufData = std::move(data);
+			Buffer buffer;
+			if (i == 0) {
+				BOOST_REQUIRE(index.addFromAnotherServer(1, bufData, curTime.unix(), buffer));
+			} else {
+				BOOST_CHECK(index.load(curTime.unix()));
+			}
+
+			auto findItem = index.find("testLevel", "1", "testKey", curTime.unix());
+			BOOST_REQUIRE(findItem.get() != NULL);
+			std::string getData((char*)findItem.get()->data(), findItem.get()->size());
+			BOOST_CHECK(getData == TEST_DATA);
+			BOOST_CHECK(findItem->header().liveTo == (uint32_t)(curTime.unix() + 3600));
+
+			BOOST_CHECK(index.find("testLevel", "1", "testKey2", curTime.unix()).get() == NULL);
+
+			findItem = index.find("testLevel2", "testSubLevel", "testKey", curTime.unix());
+			BOOST_REQUIRE(findItem.get() != NULL);
+			getData.assign((char*)findItem.get()->data(), findItem.get()->size());
+			BOOST_CHECK(getData == TEST_DATA);
+			BOOST_CHECK(findItem->header().liveTo == (uint32_t)(curTime.unix() + 1));
+		}
+	}
+	catch (...)
+	{
+		BOOST_CHECK_NO_THROW(throw);
+	}
 }
 
 

@@ -84,8 +84,8 @@ namespace fl {
 					return (md.subLevelKeyType != subLevelKeyType) || (md.itemKeyType != itemKeyType);
 				}
 				uint8_t version;
-				uint8_t subLevelKeyType;
-				uint8_t itemKeyType;
+				EKeyType subLevelKeyType;
+				EKeyType itemKeyType;
 			} __attribute__((packed));
 			
 			struct ReplicationPacketHeader
@@ -111,6 +111,13 @@ namespace fl {
 			virtual void clearOld(const ItemHeader::TTime curTime) = 0;
 			virtual bool sync(Buffer &buf, const ItemHeader::TTime curTime, bool force) = 0;
 			virtual bool pack(Buffer &buf, const ItemHeader::TTime curTime) = 0;
+			
+			const MetaData &md() const
+			{
+				return _md;
+			}
+			virtual bool addFromAnotherServer(const TServerID serverID, Buffer &data, const Buffer::TSize endPacketPos, 
+				const ItemHeader::TTime curTime, Buffer &buffer) = 0;
 		protected:
 			std::string _level;
 			class Index *_index;
@@ -218,6 +225,8 @@ namespace fl {
 			void exitFlush();
 			bool getFromReplicationLog(const TServerID serverID, BString &data, Buffer &buffer, 
 				TReplicationLogNumber &startNumber, uint32_t &seek); 
+			bool addFromAnotherServer(const TServerID serverID, Buffer &data, const ItemHeader::TTime curTime, 
+				Buffer &buffer);
 		private:
 			static Mutex _hourlySync;
 			bool _checkLevelName(const std::string &name);
