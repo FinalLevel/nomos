@@ -116,7 +116,8 @@ namespace fl {
 		{
 		public:
 			NomosEventFactory(Config *config);
-			virtual WorkEvent *create(const TEventDescriptor descr, const time_t timeOutTime, Socket *acceptSocket);
+			virtual WorkEvent *create(const TEventDescriptor descr, const TIPv4 ip, const time_t timeOutTime, 
+				Socket *acceptSocket);
 			virtual ~NomosEventFactory() {};
 		private:
 			Config *_config;

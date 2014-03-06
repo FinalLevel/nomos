@@ -11,6 +11,11 @@
 // Description: Nomos server's iteranl types definition
 ///////////////////////////////////////////////////////////////////////////////
 
+#include <cstdint>
+#include <string>
+#include <vector>
+#include <memory>
+
 namespace fl {
 	namespace nomos {
 		enum EKeyType : uint8_t
@@ -28,7 +33,10 @@ namespace fl {
 			uint32_t port;
 		};
 		typedef std::vector<Server> TServerList;
+		
+		typedef uint32_t TReplicationLogNumber;
 
+		typedef std::shared_ptr<class TopLevelIndex> TTopLevelIndexPtr;
 	};
 };
 

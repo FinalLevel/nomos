@@ -35,7 +35,6 @@
 #include "file.hpp"
 #include "types.hpp"
 #include "time_thread.hpp"
-#include "cond_mutex.hpp"
 #include "read_write_lock.hpp"
 
 
@@ -68,8 +67,6 @@ namespace fl {
 				REMOVE,
 			};
 		};
-		
-		typedef std::shared_ptr<class TopLevelIndex> TTopLevelIndexPtr;
 		class TopLevelIndex
 		{
 		public:
@@ -148,22 +145,6 @@ namespace fl {
 	
 		};
 
-		class IndexSyncThread : public fl::threads::Thread
-		{
-		public:
-			IndexSyncThread();
-			virtual ~IndexSyncThread() {}
-			void add(TTopLevelIndexPtr &topLevel);
-		private:
-			virtual void run();
-			fl::threads::CondMutex _cond;
-			Mutex _sync;
-			typedef std::vector<TTopLevelIndexPtr> TTopLevelVector;
-			TTopLevelVector _needSyncLevels;
-		};
-		
-		typedef uint32_t TReplicationLogNumber;
-		
 		class Index
 		{
 		public:
@@ -302,7 +283,7 @@ namespace fl {
 			
 			fl::threads::TimeThread _timeThread;
 			
-			typedef std::vector<IndexSyncThread*> TSyncThreadVector;
+			typedef std::vector<class IndexSyncThread*> TSyncThreadVector;
 			TSyncThreadVector _syncThreads;
 		};
 	};

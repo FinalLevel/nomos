@@ -13,7 +13,7 @@
 #include "nomos_log.hpp"
 #include "file.hpp"
 #include "util.hpp"
-#include "cond_mutex.hpp"
+#include "index_sync_thread.hpp"
 
 
 using namespace fl::nomos;
@@ -1435,51 +1435,6 @@ void Index::addToSync(TTopLevelIndexPtr &topLevel)
 	static int num = 0;
 	num++;
 	_syncThreads[num % _syncThreads.size()]->add(topLevel);
-}
-
-IndexSyncThread::IndexSyncThread()
-{
-	static const uint32_t SYNC_THREAD_STACK_SIZE = 100000;
-	setStackSize(SYNC_THREAD_STACK_SIZE);
-	if (!create())
-	{
-		log::Fatal::L("Can't create an index thread\n");
-		throw std::exception();
-	}
-}
-
-void IndexSyncThread::add(TTopLevelIndexPtr &topLevel)
-{
-	_sync.lock();
-	_needSyncLevels.push_back(topLevel);
-	_sync.unLock();
-	_cond.sendSignal();
-}
-
-void IndexSyncThread::run()
-{
-	fl::chrono::Time curTime;
-	Buffer buf(MAX_BUF_SIZE + 1);
-	while (true)
-	{
-		TTopLevelVector workItems;
-		_sync.lock();
-		std::swap(_needSyncLevels, workItems);
-		_sync.unLock();
-		if (workItems.empty())
-		{
-			_cond.waitSignal();
-			continue;
-		}
-		curTime.update();
-		for (auto level = workItems.begin(); level != workItems.end(); level++) {
-			if (!(*level)->sync(buf, curTime.unix(), false))	{
-				_sync.lock();
-				_needSyncLevels.push_back(*level);
-				_sync.unLock();
-			}
-		}
-	}
 }
 
 bool Index::startReplicationLog(const TServerID serverID, const u_int32_t replicationLogKeepTime, 

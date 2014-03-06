@@ -424,7 +424,8 @@ NomosEventFactory::NomosEventFactory(Config *config)
 	NomosEvent::setConfig(config);
 }
 
-WorkEvent *NomosEventFactory::create(const TEventDescriptor descr, const time_t timeOutTime, Socket* acceptSocket)
+WorkEvent *NomosEventFactory::create(const TEventDescriptor descr, const TIPv4 ip, 
+	const time_t timeOutTime, Socket* acceptSocket)
 {
 	return new NomosEvent(descr, EPollWorkerGroup::curTime.unix() + _config->cmdTimeout());
 }

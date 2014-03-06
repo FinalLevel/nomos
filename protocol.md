@@ -1,4 +1,9 @@
-Nomos Storage communication protocol 
+Nomos Storage communication protocol
+=====
+Copyright (c) 2014 Final Level
+Author: Denys Misko <gdraal@gmail.com>
+Distributed under BSD (3-Clause) License (See
+accompanying file LICENSE)
 =====
 
 You're supposed to know Nomos's protocol only if you've decided to write your own library realization of protocol.
