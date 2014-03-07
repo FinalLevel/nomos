@@ -142,7 +142,8 @@ void Config::_parseReplicationParams(boost::property_tree::ptree &pt)
 			printf("IP format is mismatch at nomos-server.masters\n");
 			throw std::exception();
 		}
-		server.listenIp.assign(pbegin, len);
+		std::string listenIP(pbegin, len);
+		server.ip = Socket::ip2Long(listenIP.c_str());
 		pbegin = p + 1;
 		char *endPort;
 		server.port = strtoul(pbegin, &endPort, 10);

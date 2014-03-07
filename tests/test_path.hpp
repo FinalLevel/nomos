@@ -29,6 +29,7 @@ namespace fl {
 				BString path;
 				path.sprintfSet("/tmp/test_nomos_index_%u_%u", call, rand());
 				_path = path.c_str();
+				Directory::rmDirRecursive(_path.c_str());
 				Directory::makeDirRecursive(_path.c_str());
 			}
 

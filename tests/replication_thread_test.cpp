@@ -67,6 +67,9 @@ BOOST_AUTO_TEST_CASE (testReplicationThreads)
 		std::string getData((char*)findItem.get()->data(), findItem.get()->size());
 		BOOST_CHECK(getData == TEST_DATA);
 		BOOST_CHECK(findItem->header().liveTo == (uint32_t)(curTime.unix() + 3600));
+		
+		index2.exitFlush();
+		index1.exitFlush();
 	}
 	catch (...)
 	{

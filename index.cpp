@@ -1172,8 +1172,7 @@ TopLevelIndex *TopLevelIndex::create(
 
 Index::Index(const std::string &path)
 	: _serverID(0), _path(path), _replicationLogKeepTime(0), _status(0),
-	_subLevelKeyType(KEY_INT32), _itemKeyType(KEY_INT64), _timeThread(5 * 60),  // minutes tic time
-	_replicationAcceptThread(NULL)
+	_subLevelKeyType(KEY_INT32), _itemKeyType(KEY_INT64), _timeThread(NULL), _replicationAcceptThread(NULL)
 {
 	Directory dir(path.c_str());
 	BString topLevelPath;
@@ -1196,6 +1195,14 @@ Index::Index(const std::string &path)
 
 void Index::_stopThreads()
 {
+	if (_timeThread)
+	{
+		_timeThread->cancel();
+		_timeThread->waitMe();
+		delete _timeThread;
+		_timeThread = NULL;
+	}
+
 	for (auto thread = _syncThreads.begin(); thread  != _syncThreads.end(); thread++) {
 		(*thread)->cancel();
 		(*thread)->waitMe();
@@ -1215,8 +1222,6 @@ void Index::_stopThreads()
 		delete (*thread);	
 	}
 	_replicationThreads.clear();
-	_timeThread.cancel();
-	_timeThread.waitMe();
 }
 
 Index::~Index()
@@ -1427,8 +1432,6 @@ bool Index::create(const std::string &level, const EKeyType subLevelKeyType, con
 	return true;
 }
 
-Mutex Index::_hourlySync;
-
 bool Index::hour(fl::chrono::ETime &curTime)
 {
 	AutoMutex autoSync(&_hourlySync);
@@ -1441,8 +1444,9 @@ bool Index::hour(fl::chrono::ETime &curTime)
 
 void Index::startThreads(const uint32_t syncThreadCount)
 {
-	_timeThread.addEveryHour(new fl::threads::TimeTask<Index>(this, &Index::hour));
-	if (!_timeThread.create())
+	_timeThread = new fl::threads::TimeThread(5 * 60);
+	_timeThread->addEveryHour(new fl::threads::TimeTask<Index>(this, &Index::hour));
+	if (!_timeThread->create())
 	{
 		log::Fatal::L("Can't create a time thread\n");
 		throw std::exception();
@@ -1811,9 +1815,9 @@ bool Index::addFromAnotherServer(const TServerID serverID, Buffer &data, const I
 
 void Index::exitFlush()
 {
-	log::Error::L("Index %s flushing\n", _path.c_str());
+	log::Error::L("Index %s flushing (%u)\n", _path.c_str(), _serverID);
 	_stopThreads();
-	sleep(1); // wait for finishing commands
+	//sleep(1); // wait for finishing commands
 	
 	_hourlySync.lock();
 	_sync.lock();

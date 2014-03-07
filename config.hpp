@@ -118,7 +118,18 @@ namespace fl {
 			{
 				return _replicationLogPath;
 			}
-			
+			Socket &replicationSocket()
+			{
+				return _replicationSocket;
+			}
+			uint32_t replicationPort() const
+			{
+				return _replicationPort;
+			}
+			TServerList &masters()
+			{
+				return _masters;
+			}
 		private:
 			void _parseNetworkParams(boost::property_tree::ptree &pt);
 			void _parseIndexParams(boost::property_tree::ptree &pt);

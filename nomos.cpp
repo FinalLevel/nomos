@@ -69,8 +69,17 @@ int main(int argc, char *argv[])
 			return -1;
 		index->setAutoCreate(config->isAutoCreate(), config->defaultSublevelKeyType(), config->defaultItemKeyType());
 		index->startThreads(config->syncThreadsCount());
-		if (!index->startReplicationLog(config->serverID(), config->replicationLogKeepTime(), config->replicationLogPath()))
-			return -1;
+		if (config->replicationLogKeepTime() > 0) {
+			if (!index->startReplicationLog(config->serverID(), config->replicationLogKeepTime(), 
+					config->replicationLogPath()))
+				return -1;
+			if (config->replicationPort() > 0) {
+				if (!index->startReplicationListenter(&config->replicationSocket()))
+					return -1;
+			}
+			if (!index->startReplication(config->masters()))
+				return -1;
+		}
 		NomosEvent::setInited(index.get());
 		setSignals();
 		workerGroup->waitThreads();

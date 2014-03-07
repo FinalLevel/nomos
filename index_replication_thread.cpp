@@ -136,7 +136,7 @@ bool ReplicationReceiverThread::_recvPacket()
 {
 	if (!_socket.pollAndRecvAll(&_readBinLogPacket, sizeof(_readBinLogPacket)))
 	{
-		log::Fatal::L("Can't receive packet from %s\n", Socket::ip2String(_ip).c_str());
+		log::Error::L("ReceiverThread: Can't receive packet from %s\n", Socket::ip2String(_ip).c_str());
 		return false;
 	}
 	return true;
@@ -145,7 +145,7 @@ bool ReplicationReceiverThread::_recvPacket()
 bool ReplicationReceiverThread::_getReplicationPacket()
 {
 	_data.clear();
-	ReadBinLogAnswer &ra = *(ReadBinLogAnswer*)_data.reserveBuffer(sizeof(ra));
+	_data.reserveBuffer(sizeof(ReadBinLogAnswer));
 
 	static const int MAX_WAIT_TRIES = 10; // tries 50ms each
 	for (int tries = 0; tries < MAX_WAIT_TRIES; tries++)
@@ -156,7 +156,7 @@ bool ReplicationReceiverThread::_getReplicationPacket()
 				_readBinLogPacket.number, _readBinLogPacket.seek);
 			return false;
 		}
-		if (_data.writtenSize() > sizeof(ra))
+		if (_data.writtenSize() > sizeof(ReadBinLogAnswer))
 			break;
 		else
 		{
@@ -167,6 +167,7 @@ bool ReplicationReceiverThread::_getReplicationPacket()
 			nanosleep(&tim , NULL);
 		}
 	}
+	ReadBinLogAnswer &ra = *(ReadBinLogAnswer*)_data.mapBuffer(sizeof(ra));
 	ra.number = _readBinLogPacket.number;
 	ra.seek = _readBinLogPacket.seek;
 	ra.size = _data.writtenSize() - sizeof(ra);
@@ -224,7 +225,7 @@ bool ReplicationActiveThread::_saveReplicationInfo()
 {
 	_infoData.sprintfSet("%u-%u\n", _readBinLogPacket.number, _readBinLogPacket.seek);
 	_fd.seek(0, SEEK_SET);
-	if (!_fd.write(_infoData.c_str(), _infoData.size()) != _infoData.size())
+	if (_fd.write(_infoData.c_str(), _infoData.size()) != _infoData.size())
 	{
 		log::Error::L("Can't write replication info for server %u\n", _fromServer);
 		return false;
@@ -281,10 +282,11 @@ bool ReplicationActiveThread::_handshake()
 	}
 	if (fromServer != _fromServer)
 		_fd.close();
+	_fromServer = fromServer;
 	if (_openReplicationInfo())
 	{
 		log::Info::L("Start synchronization from %u/%u from serverID %u\n", _readBinLogPacket.number, 
-			_readBinLogPacket.seek);
+			_readBinLogPacket.seek, _fromServer);
 		return true;
 	}
 	else {

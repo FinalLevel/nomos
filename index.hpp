@@ -216,7 +216,7 @@ namespace fl {
 				return _replicationLogPath;
 			}
 		private:
-			static Mutex _hourlySync;
+			Mutex _hourlySync;
 			bool _checkLevelName(const std::string &name);
 			TServerID _serverID;
 			std::string _path;
@@ -288,7 +288,7 @@ namespace fl {
 			TTopLevelIndex _index;
 			Mutex _sync;
 			
-			fl::threads::TimeThread _timeThread;
+			fl::threads::TimeThread *_timeThread;
 			
 			typedef std::vector<class IndexSyncThread*> TSyncThreadVector;
 			TSyncThreadVector _syncThreads;
