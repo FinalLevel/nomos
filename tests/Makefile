@@ -3,12 +3,12 @@ PRJ_ROOT=..
 include ../Makefile.inc
 
 OPFLAGS = 
-TEST_OBJ=index_test.o test.o $(NOMOS_OBJ)
+TEST_OBJ=index_test.o replication_thread_test.o test.o $(NOMOS_OBJ)
 
 TEST_LIBS=-lboost_unit_test_framework-mt -lboost_filesystem-mt
 
 all: test
-	rm -rf /tmp/test_nomos_index_1*
+	rm -rf /tmp/test_nomos_index_*
 	./test
 
 test: $(TEST_OBJ)

@@ -11,8 +11,8 @@
 #include <boost/test/unit_test.hpp>
 #include <boost/test/output_test_stream.hpp> 
 
-#include "dir.hpp"
-#include "bstring.hpp"
+
+#include "test_path.hpp"
 
 #include "index.hpp"
 #include "time.hpp"
@@ -20,49 +20,7 @@
 
 using namespace fl::nomos;
 using namespace fl::fs;
-using fl::strings::BString;
 using fl::chrono::Time;
-
-class TestIndexPath
-{
-public:
-	TestIndexPath()
-	{
-		static int call = 0;
-		call++;
-		BString path;
-		path.sprintfSet("/tmp/test_nomos_index_%u_%u", call, rand());
-		_path = path.c_str();
-		Directory::makeDirRecursive(_path.c_str());
-	}
-		
-	~TestIndexPath()
-	{
-		Directory::rmDirRecursive(_path.c_str());
-	}
-	
-	const char *path() const
-	{
-		return _path.c_str();
-	}
-	const int countFiles(const char *subdir)
-	{
-		BString path;
-		path.sprintfSet("%s/%s", _path.c_str(), subdir);
-		int count = 0;
-		Directory dir(path.c_str());
-		while (dir.next())
-		{
-			if (dir.isDirectory())
-				continue;
-			count++;
-		}
-		return count;
-	}
-private:
-	std::string _path;
-};
-
 
 BOOST_AUTO_TEST_SUITE( nomos )
 
@@ -406,7 +364,7 @@ BOOST_AUTO_TEST_CASE (testIndexReplicationLog)
 	TestIndexPath binLogPath;
 	Time curTime;
 	const char TEST_DATA[] = "1234567";	
-	BString data;
+	Buffer data;
 	try
 	{
 		Index index(testPath.path());
@@ -434,17 +392,17 @@ BOOST_AUTO_TEST_CASE (testIndexReplicationLog)
 		TReplicationLogNumber number = 1;
 		uint32_t seek = 0;
 		BOOST_CHECK(index.getFromReplicationLog(2, data, buffer, number, seek));
-		BOOST_CHECK(data.size() == 235); // check data sizes
+		BOOST_CHECK(data.writtenSize() == 235); // check data sizes
 
-		BString data2;
+		Buffer data2;
 		BOOST_CHECK(index.getFromReplicationLog(2, data2, buffer, number, seek));
-		BOOST_CHECK(data2.size() == 0);
+		BOOST_CHECK(data2.writtenSize() == 0);
 
 		data2.clear();
 		number = 1;
 		seek = 0;
 		BOOST_CHECK(index.getFromReplicationLog(1, data2, buffer, number, seek));
-		BOOST_CHECK(data2.size() == 0);
+		BOOST_CHECK(data2.writtenSize() == 0);
 	}
 	catch (...)
 	{
@@ -458,11 +416,9 @@ BOOST_AUTO_TEST_CASE (testIndexReplicationLog)
 		for (int i = 0; i < 2; i++) {
 			Index index(testPath2.path());
 			BOOST_REQUIRE(index.startReplicationLog(2, 3600, binLogPath2.path()));
-			Buffer bufData;
-			bufData = std::move(data);
 			Buffer buffer;
 			if (i == 0) {
-				BOOST_REQUIRE(index.addFromAnotherServer(1, bufData, curTime.unix(), buffer));
+				BOOST_REQUIRE(index.addFromAnotherServer(1, data, curTime.unix(), buffer));
 			} else {
 				BOOST_CHECK(index.load(curTime.unix()));
 			}

@@ -13,7 +13,7 @@ using namespace fl::nomos::log;
 NomosLogSystem NomosLogSystem::_logSystem;
 
 NomosLogSystem::NomosLogSystem()
-	: LogSystem("nomos"), _logLevel(FL_LOG_LEVEL)
+	: LogSystem("nomos"), _logLevel(MAX_LOG_LEVEL)
 {
 	_logSystem.addTarget(new fl::log::ScreenTarget());
 }

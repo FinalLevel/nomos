@@ -16,6 +16,8 @@
 #include <vector>
 #include <memory>
 
+#include "socket.hpp"
+
 namespace fl {
 	namespace nomos {
 		enum EKeyType : uint8_t
@@ -29,7 +31,7 @@ namespace fl {
 		
 		struct Server
 		{
-			std::string listenIp;
+			fl::network::TIPv4 ip;
 			uint32_t port;
 		};
 		typedef std::vector<Server> TServerList;

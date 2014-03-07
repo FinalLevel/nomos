@@ -14,6 +14,7 @@
 #include "file.hpp"
 #include "util.hpp"
 #include "index_sync_thread.hpp"
+#include "index_replication_thread.hpp"
 
 
 using namespace fl::nomos;
@@ -1171,7 +1172,8 @@ TopLevelIndex *TopLevelIndex::create(
 
 Index::Index(const std::string &path)
 	: _serverID(0), _path(path), _replicationLogKeepTime(0), _status(0),
-	_subLevelKeyType(KEY_INT32), _itemKeyType(KEY_INT64), _timeThread(5 * 60) // minutes tic time
+	_subLevelKeyType(KEY_INT32), _itemKeyType(KEY_INT64), _timeThread(5 * 60),  // minutes tic time
+	_replicationAcceptThread(NULL)
 {
 	Directory dir(path.c_str());
 	BString topLevelPath;
@@ -1192,8 +1194,34 @@ Index::Index(const std::string &path)
 	log::Info::L("Loaded %u top indexes\n", _index.size());
 }
 
+void Index::_stopThreads()
+{
+	for (auto thread = _syncThreads.begin(); thread  != _syncThreads.end(); thread++) {
+		(*thread)->cancel();
+		(*thread)->waitMe();
+		delete (*thread);
+	}
+	_syncThreads.clear();
+	if (_replicationAcceptThread) {
+		_replicationAcceptThread->cancel();
+		_replicationAcceptThread->waitMe();
+		delete _replicationAcceptThread;
+		_replicationAcceptThread = NULL;
+	}
+	for (auto thread = _replicationThreads.begin(); thread != _replicationThreads.end(); thread++)
+	{
+		(*thread)->cancel();
+		(*thread)->waitMe();
+		delete (*thread);	
+	}
+	_replicationThreads.clear();
+	_timeThread.cancel();
+	_timeThread.waitMe();
+}
+
 Index::~Index()
 {
+	_stopThreads();
 }
 
 void Index::setAutoCreate(const bool ison, const EKeyType defaultSublevelType, const EKeyType defaultItemKeyType)
@@ -1437,6 +1465,23 @@ void Index::addToSync(TTopLevelIndexPtr &topLevel)
 	_syncThreads[num % _syncThreads.size()]->add(topLevel);
 }
 
+bool Index::startReplicationListenter(fl::network::Socket *listen)
+{
+	if (!_replicationLogKeepTime)
+		return false;
+	_replicationAcceptThread = new ReplicationAcceptThread(listen, this); 
+	return true;
+}
+
+bool Index::startReplication(TServerList &masters)
+{
+	if (!_replicationLogKeepTime)
+		return false;
+	for (TServerList::iterator s = masters.begin(); s != masters.end(); s++)
+		_replicationThreads.push_back(new ReplicationActiveThread(s->ip, s->port, this));
+	return true;
+}
+
 bool Index::startReplicationLog(const TServerID serverID, const u_int32_t replicationLogKeepTime, 
 	const std::string &replicationLogPath)
 {
@@ -1537,7 +1582,7 @@ void Index::ReplicationLog::save(Buffer &buffer)
 	_fileSize += buffer.writtenSize();
 }
 
-bool Index::ReplicationLog::read(const TServerID serverID, BString &data, Buffer &buffer, uint32_t &seek)
+bool Index::ReplicationLog::read(const TServerID serverID, Buffer &data, Buffer &buffer, uint32_t &seek)
 {
 	if (seek == 0)
 		seek += (sizeof(_version) + sizeof(_number));
@@ -1552,9 +1597,7 @@ bool Index::ReplicationLog::read(const TServerID serverID, BString &data, Buffer
 			readChunk = leftRead;
 		if (_readFd.pread(buffer.reserveBuffer(readChunk), readChunk, seek) != readChunk)
 			return false;
-		seek += readChunk;
-		leftRead -= readChunk;
-		
+	
 		size_t lastOkBlock = 0;
 		try
 		{
@@ -1570,7 +1613,7 @@ bool Index::ReplicationLog::read(const TServerID serverID, BString &data, Buffer
 					buffer.seekReadPos(lastOkBlock);
 					auto addData = sizeof(TopLevelIndex::ReplicationPacketHeader) + rph.packetSize;
 					data.add((char*)buffer.mapBuffer(addData), addData);
-					if (data.size() > (BString::TSize)MAX_BUF_SIZE)
+					if (data.writtenSize() > (BString::TSize)MAX_BUF_SIZE)
 					{
 						seek += buffer.readPos();
 						return true;
@@ -1678,19 +1721,27 @@ void Index::addToReplicationLog(Buffer &buffer)
 	rl->save(buffer);
 }
 
-bool Index::getFromReplicationLog(const TServerID serverID, BString &data, Buffer &buffer, 
+bool Index::getFromReplicationLog(const TServerID serverID, Buffer &data, Buffer &buffer, 
 	TReplicationLogNumber &startNumber, uint32_t &seek)
 {
 	AutoMutex autoSync(&_replicationSync);
+	if (_replicationLogFiles.empty())
+		return true;
+	
 	auto repl = _replicationLogFiles.rbegin();
 	for (;  repl != _replicationLogFiles.rend(); repl++) {
 		if ((*repl)->number() == startNumber)
 			break;
 	}
-	if (repl == _replicationLogFiles.rend())
-	{
-		log::Error::L("[%s] Can't find log %u seek %u for server %u\n", _replicationLogPath.c_str(), startNumber, seek);
-		return false;
+	if (repl == _replicationLogFiles.rend()) {
+		if (!startNumber && !seek) {
+			repl = _replicationLogFiles.rend() - 1;
+			startNumber = (*repl)->number();
+		} else {
+			log::Error::L("[%s] Can't find log %u seek %u for server %u\n", _replicationLogPath.c_str(), startNumber, seek, 
+				serverID);
+			return false;
+		}
 	}
 	while (true)
 	{
@@ -1698,7 +1749,7 @@ bool Index::getFromReplicationLog(const TServerID serverID, BString &data, Buffe
 			break;
 		if (repl == _replicationLogFiles.rbegin())
 			return true;
-		repl++;
+		repl--;
 		seek = 0;
 		startNumber = (*repl)->number();
 	}
@@ -1758,10 +1809,10 @@ bool Index::addFromAnotherServer(const TServerID serverID, Buffer &data, const I
 	return false;
 }
 
-
 void Index::exitFlush()
 {
 	log::Error::L("Index %s flushing\n", _path.c_str());
+	_stopThreads();
 	sleep(1); // wait for finishing commands
 	
 	_hourlySync.lock();

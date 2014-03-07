@@ -36,6 +36,7 @@
 #include "types.hpp"
 #include "time_thread.hpp"
 #include "read_write_lock.hpp"
+#include "socket.hpp"
 
 
 namespace fl {
@@ -197,6 +198,8 @@ namespace fl {
 			}
 			bool startReplicationLog(const TServerID serverID, const u_int32_t replicationLogKeepTime, 
 				const std::string &replicationLogPath);
+			bool startReplicationListenter(fl::network::Socket *listen);
+			bool startReplication(TServerList &masters);
 			
 			void addToReplicationLog(Buffer &buffer);
 			bool isReplicating()
@@ -204,10 +207,14 @@ namespace fl {
 				return _replicationLogKeepTime > 0;
 			}
 			void exitFlush();
-			bool getFromReplicationLog(const TServerID serverID, BString &data, Buffer &buffer, 
+			bool getFromReplicationLog(const TServerID serverID, Buffer &data, Buffer &buffer, 
 				TReplicationLogNumber &startNumber, uint32_t &seek); 
 			bool addFromAnotherServer(const TServerID serverID, Buffer &data, const ItemHeader::TTime curTime, 
 				Buffer &buffer);
+			const std::string &replicationLogPath() const
+			{
+				return _replicationLogPath;
+			}
 		private:
 			static Mutex _hourlySync;
 			bool _checkLevelName(const std::string &name);
@@ -244,7 +251,7 @@ namespace fl {
 					else
 						return false;
 				}
-				bool read(const TServerID serverID, BString &data, Buffer &buffer, uint32_t &seek);
+				bool read(const TServerID serverID, Buffer &data, Buffer &buffer, uint32_t &seek);
 				const bool canFit(const uint32_t size);
 				void save(Buffer &buffer);
 				
@@ -285,6 +292,12 @@ namespace fl {
 			
 			typedef std::vector<class IndexSyncThread*> TSyncThreadVector;
 			TSyncThreadVector _syncThreads;
+			
+			class ReplicationAcceptThread *_replicationAcceptThread;
+			typedef std::vector<class ReplicationActiveThread *> TReplicationActiveThreadVector;
+			TReplicationActiveThreadVector _replicationThreads;
+			
+			void _stopThreads();
 		};
 	};
 };
