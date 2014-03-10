@@ -1210,8 +1210,6 @@ void Index::_stopThreads()
 	}
 	_syncThreads.clear();
 	if (_replicationAcceptThread) {
-		_replicationAcceptThread->cancel();
-		_replicationAcceptThread->waitMe();
 		delete _replicationAcceptThread;
 		_replicationAcceptThread = NULL;
 	}
@@ -1438,6 +1436,7 @@ bool Index::hour(fl::chrono::ETime &curTime)
 	log::Info::L("Hourly routines started\n");
 	clearOld(curTime.unix());
 	pack(curTime.unix());
+	deleteOldReplicationLog(curTime.unix());
 	log::Info::L("Hourly routines ended\n");
 	return true;
 }
@@ -1678,8 +1677,7 @@ bool Index::_openReplicationFiles()
 	{
 		BString fileName;
 		Directory dir(_replicationLogPath.c_str());
-		while (dir.next())
-		{
+		while (dir.next()) {
 			if (strncmp(dir.name(), REPLICATION_FILE_PREFIX.c_str(), REPLICATION_FILE_PREFIX.size()))
 				continue;
 			char *serverIDend;
@@ -1709,13 +1707,42 @@ bool Index::_openReplicationFiles()
 	}
 }
 
+bool Index::deleteOldReplicationLog(const time_t curTime)
+{
+	if (!isReplicating())
+		return false;
+	time_t minSaveTime = curTime -  _replicationLogKeepTime;
+	
+	decltype(_replicationLogFiles) saveReplicationLogFiles;
+	AutoMutex autoSync(&_replicationSync);
+	for (auto repl = _replicationLogFiles.begin(); repl != _replicationLogFiles.end(); repl++) {
+		if ((*repl)->number() == _currentReplicationLog->number()) // don't touch last binlog
+		{
+			saveReplicationLogFiles.push_back(*repl);
+			continue;
+		}
+		struct stat fStat;
+		if (lstat((*repl)->fileName().c_str(), &fStat) == 0) { // file exists otherwise skip it
+			if (fStat.st_mtim.tv_sec > minSaveTime) {
+				saveReplicationLogFiles.push_back(*repl);
+			} else {
+				if (unlink((*repl)->fileName().c_str()) != 0) {
+					log::Error::L("Can't remove binlog %s file\n", (*repl)->fileName().c_str());
+					return false;
+				}
+			}
+		} 
+	}
+	std::swap(_replicationLogFiles, saveReplicationLogFiles);
+	return true;
+}
+
 void Index::addToReplicationLog(Buffer &buffer)
 {
-	if (!_replicationLogKeepTime)
+	if (!isReplicating())
 		return;
 	AutoMutex autoSync(&_replicationSync);
-	if (!_currentReplicationLog->canFit(buffer.writtenSize()))
-	{
+	if (!_currentReplicationLog->canFit(buffer.writtenSize())) {
 		_currentReplicationLog.reset();
 		if (!_openCurrentReplicationLog())
 			throw std::exception();

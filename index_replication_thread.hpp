@@ -93,7 +93,7 @@ namespace fl {
 		{
 		public:
 			ReplicationAcceptThread(Socket *listenTo, class Index *index);
-			virtual ~ReplicationAcceptThread() {};
+			virtual ~ReplicationAcceptThread();
 			void stop();
 			void addFreeReceiver(ReplicationReceiverThread *thread);
 		private:

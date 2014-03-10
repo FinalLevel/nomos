@@ -29,13 +29,26 @@ ReplicationAcceptThread::ReplicationAcceptThread(Socket *listenTo, class Index *
 	}
 }
 
+ReplicationAcceptThread::~ReplicationAcceptThread()
+{
+	stop();
+}
+
+
 void ReplicationAcceptThread::stop()
 {
 	cancel();
+	waitMe();
 	for (auto thread = _receivers.begin(); thread != _receivers.end(); thread++) {
 		(*thread)->cancel();
 		(*thread)->waitMe();
 	}
+	_sync.lock();
+	for (auto thread = _receivers.begin(); thread != _receivers.end(); thread++) {
+		delete (*thread);
+	}
+	_freeReceiver.clear();
+	_sync.unLock();
 }
 
 void ReplicationAcceptThread::addFreeReceiver(ReplicationReceiverThread *thread)
@@ -56,6 +69,11 @@ void ReplicationAcceptThread::run()
 			continue;
 		};
 		if (!Socket::setNonBlockIO(clientDescr)) {
+			log::Error::L("AcceptThread cannot setNonBlockIO\n");
+			close(clientDescr);
+			continue;
+		}
+		if (!Socket::setNoDelay(clientDescr, 1)) {
 			log::Error::L("AcceptThread cannot setNonBlockIO\n");
 			close(clientDescr);
 			continue;
@@ -339,6 +357,7 @@ void ReplicationActiveThread::run()
 			sleep(1);
 			continue;
 		}
+		Socket::setNoDelay(_socket.descr(), 1);
 		
 		static const int MAX_CONNECT_TIMEOUT = 1000 * 2; // 2 seconds
 		if (!_socket.connect(_hostIp, _hostPort, MAX_CONNECT_TIMEOUT)) {

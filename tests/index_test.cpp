@@ -444,5 +444,50 @@ BOOST_AUTO_TEST_CASE (testIndexReplicationLog)
 	}
 }
 
+bool addMockReplicationFile(const char *path, BString &fileName, const TReplicationLogNumber number, 
+	const time_t setTime)
+{
+	fileName.sprintfSet("%s/%s1_%x", path, Index::REPLICATION_FILE_PREFIX.c_str(), number);
+	File fd;
+	if (!fd.open(fileName.c_str(), O_CREAT | O_WRONLY))
+		return false;
+	
+	u_int8_t version = 1;
+	if (!fd.write(&version, sizeof(version))) {
+		return false;
+	}
+	if (!fd.write(&number, sizeof(number))) {
+		return false;
+	}
+	fd.close();
+	if (!File::touch(fileName.c_str(), setTime))
+		return false;
+	return true;
+}
+
+BOOST_AUTO_TEST_CASE (testIndexReplicationLogClearing)
+{
+	TestIndexPath testPath;
+	TestIndexPath binLogPath;
+	Time curTime;
+	try
+	{
+		BString fileName;
+		BOOST_REQUIRE(addMockReplicationFile(binLogPath.path(), fileName, 3, curTime.unix() - 3601));
+		BOOST_REQUIRE(addMockReplicationFile(binLogPath.path(), fileName, 1, curTime.unix() - 3601));
+		BOOST_REQUIRE(addMockReplicationFile(binLogPath.path(), fileName, 2, curTime.unix() - 1000));
+		
+		Index index(testPath.path());
+		BOOST_REQUIRE(index.startReplicationLog(1, 3600, binLogPath.path()));
+		BOOST_REQUIRE(index.replicationLogFilesSize() == 3);
+		BOOST_REQUIRE(index.deleteOldReplicationLog(curTime.unix()));
+		BOOST_REQUIRE(index.replicationLogFilesSize() == 2);
+		BOOST_REQUIRE(binLogPath.countFiles("") == 2);
+	}
+	catch (...)
+	{
+		BOOST_CHECK_NO_THROW(throw);
+	}
+}
 
 BOOST_AUTO_TEST_SUITE_END()

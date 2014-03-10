@@ -215,6 +215,13 @@ namespace fl {
 			{
 				return _replicationLogPath;
 			}
+			bool deleteOldReplicationLog(const time_t curTime);
+			static const std::string REPLICATION_FILE_PREFIX;
+			
+			const size_t replicationLogFilesSize() const
+			{
+				return _replicationLogFiles.size();
+			}
 		private:
 			Mutex _hourlySync;
 			bool _checkLevelName(const std::string &name);
@@ -273,7 +280,6 @@ namespace fl {
 			TReplicationLogVector _replicationLogFiles;
 			bool _openReplicationFiles();
 			bool _openCurrentReplicationLog();
-			static const std::string REPLICATION_FILE_PREFIX;
 			Mutex _replicationSync;
 			
 			

@@ -58,7 +58,7 @@ BOOST_AUTO_TEST_CASE (testReplicationThreads)
 		
 		struct timespec tim;
 		tim.tv_sec = 0;
-		static const int RECHECK_TIME = 500000000; // 500 ms
+		static const int RECHECK_TIME = 200000000; // 200 ms
 		tim.tv_nsec = RECHECK_TIME;
 		nanosleep(&tim , NULL);
 		
