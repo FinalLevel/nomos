@@ -16,7 +16,7 @@ Distributed under `BSD (3-Clause) License` (See accompanying file LICENSE)
 Nomos protocol is a semi-binary protocol. 
 
 Nomos request syntax is: `V[0-9][0-9],command,argument1,argument2 ... argumentN[\n]`
-* First two digit represent a version number and it is equal to `01` now.
+* First two digits represent a version number and it is equal to `01` now.
 * Comma (`,`) is used as a delimiter, therefore the arguments should not have it inside.
 * `command` is one char representing an operation which is needed.
 * Request finished with `\n` line ending char.
@@ -26,7 +26,7 @@ The length of the answer is always 10 symbols. It can be:
 * `ERR0000000\n` - non-critical error result (the connection won't be closed)
 * `ERR_CR0000\n` - critical error result (the connection will be closed)
 
-You can send any number of commands in one connection until you receive critical error result.
+You can send any number of commands in one connection until you receive a critical error result.
 
 ***
 ### 1. Create command (`C`)
@@ -42,7 +42,7 @@ You can send any number of commands in one connection until you receive critical
 **Answers:** `OK00000000\n` or `ERR_CR0002\n`
 
 **Example request:**  This command creates a new top level "level1" which has 32Bit integer sublevel key type and 
-string item key type.
+a string item key type.
 
     V01,C,level1,INT32,STRING\n
 
@@ -52,7 +52,7 @@ string item key type.
 ### 2. Put command (`P`) and Update command (`U`)
 
 **Description**: Both commands have the same syntax and both replace an item to the storage.
-However `update command` check an original item before replacing a new value and if both of them have identical data 
+However `update command` checks an original item before replacing a new value and if both of them have identical data 
 only the original item's header will be updated.
 
 **Command chars:** `P` or `U`
@@ -63,7 +63,7 @@ only the original item's header will be updated.
 
 **Answers:** `OK00000000\n` or `ERR0000003\n`
 
-**Put example request:** This request replace an item which has level=level1, sublevel=1 and item key=someItemKey, 
+**Put example request:** This request replaces an item which has level=level1, sublevel=1 and item key=someItemKey, 
 the item data is "1234567890".
 ```
 V01,P,level1,1,someItemKey,3600,10\n
@@ -71,8 +71,8 @@ V01,P,level1,1,someItemKey,3600,10\n
 ```
 **Example answer:** `OK00000000\n`
 
-**Update example request:** This request replace an item which has level=level1, sublevel=1 and item key=someItemKey, 
-the item data is "1234567890", but if the same value had been put into the storage before it would only update lifetime 
+**Update example request:** This request replaces an item which has level=level1, sublevel=1 and item key=someItemKey, 
+the item data is "1234567890", but if the same value was put into the storage before it would only update lifetime 
 of the previous item.
 ```
 V01,U,level1,1,someItemKey,3600,10\n
@@ -89,7 +89,7 @@ V01,U,level1,1,someItemKey,3600,10\n
 
 **Arguments:** `level name`,`sublevel key`,`item key`,`new lifetime`
 
-**Lifetime:** The amount of additional time or `0` - don't change the item lifetime.
+**Lifetime:** The amount of additional time or `0` - doesn't change the item lifetime.
 
 **Answers:** `OKXXXXXXXX\n` + `data` - where `XXXXXXXX` it is size of an item in a hex representation. 
 or `ERR0000004\n` in an error situation.
@@ -120,7 +120,7 @@ and ten seconds will be added to the item life time.
 ### 4. Touch command (`T`)
 
 
-**Description:** This command only change lifetime of an item
+**Description:** This command only changes lifetime of an item
 
 **Command char:** `T`
 
@@ -143,7 +143,7 @@ and ten seconds will be added to the item life time.
 ### 5. Remove command (`R`)
 
 
-**Description:** This command remove an item from the storage
+**Description:** This command removes an item from the storage
 
 **Command char:** `R`
 
