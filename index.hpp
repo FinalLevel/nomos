@@ -12,15 +12,15 @@
 // Description: Index maintenance classes
 ///////////////////////////////////////////////////////////////////////////////
 
-
-#ifdef _USE_BOOST
-	#include <boost/unordered_map.hpp>
-	using boost::unordered_map;
-	using boost::unordered_multimap;
-#else
+#include "config.h"
+#ifdef HAVE_CXX11
 	#include <unordered_map>
 	using std::unordered_map;
 	using std::unordered_multimap;
+#else
+	#include <boost/unordered_map.hpp>
+	using boost::unordered_map;
+	using boost::unordered_multimap;
 #endif
 
 #include <string>
