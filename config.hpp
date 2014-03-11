@@ -22,7 +22,7 @@ namespace fl {
 	namespace nomos {
 		using fl::network::Socket;
 		
-		const char * const DEFAULT_CONFIG = "./etc/nomos.cnf";
+		const char * const DEFAULT_CONFIG = SYSCONFDIR "/nomos.cnf";
 		const size_t MAX_BUF_SIZE = 300000;
 		const size_t MAX_ITEM_SIZE = 300000;
 		const size_t MAX_REPLICATION_BUFFER = MAX_BUF_SIZE + (MAX_ITEM_SIZE * 2);
