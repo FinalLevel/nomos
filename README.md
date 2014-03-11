@@ -19,8 +19,10 @@
 * Site content cache
 
 ***
-## Installation
+## Installation from git sources
 ```bash
+git clone https://github.com/FinalLevel/nomos.git
+cd nomos
 sh ./autogen.sh
 ./configure --prefix=/usr --sysconfig=/etc
 make
@@ -79,3 +81,9 @@ replicationPort=7017
 ; other masters in ip:port format
 masters=127.0.0.1:7018,127.0.0.1:7019
 ```
+
+***
+## Running
+
+`/usr/bin/nomos &` or `/usr/bin/nomos -c someOtherConfigFile &`
+
