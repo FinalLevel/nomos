@@ -17,3 +17,4 @@ config.sub
 .deps
 Makefile
 nomos_test
+!/api/nomos-py/nomos/

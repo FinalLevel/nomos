@@ -230,7 +230,7 @@ bool NomosEvent::_parseRemoveQuery(NetworkBuffer::TDataPtr &query)
 	if (!_readString(subLevel, query, ','))
 		return false;
 	std::string itemKey;
-	if (!_readString(itemKey, query, ','))
+	if (!_readString(itemKey, query, 0))
 		return false;
 
 	if (_index->remove(level, subLevel, itemKey)) {
