@@ -128,7 +128,7 @@ void TopLevelIndex::_syncToFile(const Buffer::TDataPtr data, const Buffer::TSize
 {
 	if (packedFile.descr())
 	{
-		if ((packedFile.fileSize() + needToWrite) > MAX_FILE_SIZE)
+		if ((packedFile.fileSize() + static_cast<size_t>(needToWrite)) > MAX_FILE_SIZE)
 			packedFile.close();
 	}
 	if (!packedFile.descr())
