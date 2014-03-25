@@ -20,13 +20,14 @@
 
 using namespace fl::nomos;
 using namespace fl::fs;
+using fl::tests::TestPath;
 using fl::chrono::Time;
 
 BOOST_AUTO_TEST_SUITE( nomos )
 
 BOOST_AUTO_TEST_CASE( CreateIndex )
 {
-	TestIndexPath testPath;
+	TestPath testPath("nomos_index");
 	BOOST_CHECK_NO_THROW(
 		Index index(testPath.path());
 		BOOST_CHECK(index.create("testLevel", KEY_INT32, KEY_STRING));
@@ -47,7 +48,7 @@ BOOST_AUTO_TEST_CASE( CreateIndex )
 
 BOOST_AUTO_TEST_CASE( ClearOld )
 {
-	TestIndexPath testPath;
+	TestPath testPath("nomos_index");
 	Time curTime;
 	
 	BOOST_CHECK_NO_THROW(
@@ -67,7 +68,7 @@ BOOST_AUTO_TEST_CASE( ClearOld )
 
 BOOST_AUTO_TEST_CASE( AddFindTouchIndex )
 {
-	TestIndexPath testPath;
+	TestPath testPath("nomos_index");
 	Time curTime;
 	BOOST_CHECK_NO_THROW(
 		Index index(testPath.path());
@@ -87,7 +88,7 @@ BOOST_AUTO_TEST_CASE( AddFindTouchIndex )
 
 BOOST_AUTO_TEST_CASE( AddFindRemoveIndex )
 {
-	TestIndexPath testPath;
+	TestPath testPath("nomos_index");
 	Time curTime;
 	BOOST_CHECK_NO_THROW(
 		Index index(testPath.path());
@@ -118,7 +119,7 @@ BOOST_AUTO_TEST_CASE( AddFindRemoveIndex )
 
 BOOST_AUTO_TEST_CASE( testIndexSyncPut )
 {
-	TestIndexPath testPath;
+	TestPath testPath("nomos_index");
 	Time curTime;
 	const char TEST_DATA[] = "1234567";
 	const char TEST_OVERWRITE[] = "new data";
@@ -158,7 +159,7 @@ BOOST_AUTO_TEST_CASE( testIndexSyncPut )
 
 BOOST_AUTO_TEST_CASE( testIndexSyncPutWithCheck )
 {
-	TestIndexPath testPath;
+	TestPath testPath("nomos_index");
 	Time curTime;
 	const char TEST_DATA[] = "1234567";
 	TItemSharedPtr item(new Item(TEST_DATA, sizeof(TEST_DATA) - 1, curTime.unix() + 10, curTime.unix()));
@@ -198,7 +199,7 @@ BOOST_AUTO_TEST_CASE( testIndexSyncPutWithCheck )
 
 BOOST_AUTO_TEST_CASE( testIndexSyncTouch )
 {
-	TestIndexPath testPath;
+	TestPath testPath("nomos_index");
 	Time curTime;
 	const char TEST_DATA[] = "1234567";	
 	const int ADD_TIME = 10;
@@ -238,7 +239,7 @@ BOOST_AUTO_TEST_CASE( testIndexSyncTouch )
 
 BOOST_AUTO_TEST_CASE( testIndexSyncRemove )
 {
-	TestIndexPath testPath;
+	TestPath testPath("nomos_index");
 	Time curTime;
 	const char TEST_DATA[] = "1234567";	
 	BOOST_CHECK_NO_THROW(
@@ -269,7 +270,7 @@ BOOST_AUTO_TEST_CASE( testIndexSyncRemove )
 
 BOOST_AUTO_TEST_CASE( testIndexPack )
 {
-	TestIndexPath testPath;
+	TestPath testPath("nomos_index");
 	Time curTime;
 	const char TEST_DATA[] = "1234567";	
 	const char TEST_DATA2[] = "blab";	
@@ -325,7 +326,7 @@ BOOST_AUTO_TEST_CASE( testIndexPackUnkownCMDBug )
 {
 	// test to reproduce the bug which was been at pack function (buf.add(cmd) - was forgotten)	
 	
-	TestIndexPath testPath;
+	TestPath testPath("nomos_index");
 	Time curTime;
 	const char TEST_DATA[] = "1234567";	
 	try
@@ -360,8 +361,8 @@ BOOST_AUTO_TEST_CASE( testIndexPackUnkownCMDBug )
 
 BOOST_AUTO_TEST_CASE (testIndexReplicationLog)
 {
-	TestIndexPath testPath;
-	TestIndexPath binLogPath;
+	TestPath testPath("nomos_index");
+	TestPath binLogPath("nomos_bin_log");
 	Time curTime;
 	const char TEST_DATA[] = "1234567";	
 	Buffer data;
@@ -409,8 +410,8 @@ BOOST_AUTO_TEST_CASE (testIndexReplicationLog)
 		BOOST_CHECK_NO_THROW(throw);
 	}
 	
-	TestIndexPath testPath2;
-	TestIndexPath binLogPath2;
+	TestPath testPath2("nomos_index");
+	TestPath binLogPath2("nomos_bin_log");
 	try
 	{
 		for (int i = 0; i < 2; i++) {
@@ -467,8 +468,9 @@ bool addMockReplicationFile(const char *path, BString &fileName, const TReplicat
 
 BOOST_AUTO_TEST_CASE (testIndexReplicationLogClearing)
 {
-	TestIndexPath testPath;
-	TestIndexPath binLogPath;
+	TestPath testPath("nomos_index");
+	TestPath binLogPath("nomos_bin_log");
+
 	Time curTime;
 	try
 	{

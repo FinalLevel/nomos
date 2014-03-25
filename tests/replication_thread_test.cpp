@@ -19,16 +19,17 @@
 using namespace fl::nomos;
 using namespace fl::fs;
 using fl::chrono::Time;
+using fl::tests::TestPath;
 
 BOOST_AUTO_TEST_SUITE( nomos )
 
 BOOST_AUTO_TEST_CASE (testReplicationThreads)
 {
-	TestIndexPath testPath1;
-	TestIndexPath binLogPath1;
+	TestPath testPath1("nomos_index");
+	TestPath binLogPath1("nomos_bin_log");
 	
-	TestIndexPath testPath2;
-	TestIndexPath binLogPath2;
+	TestPath testPath2("nomos_index");
+	TestPath binLogPath2("nomos_bin_log");	
 	Time curTime;
 	const char TEST_DATA[] = "1234567";	
 	Buffer data;
