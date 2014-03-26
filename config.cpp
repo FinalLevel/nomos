@@ -4,7 +4,7 @@
 // Distributed under BSD (3-Clause) License (See
 // accompanying file LICENSE)
 //
-// Description: Nomos server's config class
+// Description: Nomos server's configuration class
 ///////////////////////////////////////////////////////////////////////////////
 
 #include <boost/property_tree/ini_parser.hpp>

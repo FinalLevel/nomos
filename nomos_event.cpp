@@ -40,17 +40,7 @@ void NomosEvent::exitFlush()
 NomosEvent::NomosEvent(const TEventDescriptor descr, const time_t timeOutTime)
 	: WorkEvent(descr, timeOutTime), _networkBuffer(NULL), _curState(ST_WAIT_QUERY), _querySize(0), _dataQuery(NULL)
 {
-	_setWaitRead();
-}
-
-void NomosEvent::_setWaitRead()
-{
-	_events = E_INPUT | E_ERROR | E_HUP;
-}
-
-void NomosEvent::_setWaitSend()
-{
-	_events = E_OUTPUT | E_ERROR | E_HUP;
+	setWaitRead();
 }
 
 bool NomosEvent::_reset()
@@ -58,7 +48,7 @@ bool NomosEvent::_reset()
 	_curState = ST_WAIT_QUERY;
 	_networkBuffer->clear();
 	_querySize = 0;
-	_setWaitRead();
+	setWaitRead();
 	if (!_thread->ctrl(this))
 		return false;
 	_timeOutTime = EPollWorkerGroup::curTime.unix() + _config->cmdTimeout();
@@ -352,7 +342,7 @@ NomosEvent::ECallResult NomosEvent::_sendAnswer()
 {
 	auto res = _networkBuffer->send(_descr);
 	if (res == NetworkBuffer::IN_PROGRESS) {
-		_setWaitSend();
+		setWaitSend();
 		if (_thread->ctrl(this)) {
 			return SKIP;
 		}
@@ -391,8 +381,8 @@ const NomosEvent::ECallResult NomosEvent::call(const TEvents events)
 		else
 			return SKIP;
 	}
-	if (events & E_OUTPUT)
-	{
+	
+	if (events & E_OUTPUT) {
 		if ((_curState == ST_SEND) ||  (_curState == ST_SEND_AND_CLOSE)) {
 			return _sendAnswer();
 		} else {

@@ -72,8 +72,6 @@ namespace fl {
 			bool _formPutAnswer();
 			
 			void _formOkAnswer(const uint32_t size);
-			void _setWaitRead();
-			void _setWaitSend();
 			
 			ECallResult _sendError();
 			ECallResult _sendAnswer();
