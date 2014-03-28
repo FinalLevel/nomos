@@ -14,7 +14,7 @@
 
 #include "event_thread.hpp"
 #include "config.hpp"
-#include "fl_libs/network_buffer.hpp"
+#include "network_buffer.hpp"
 
 namespace fl {
 	namespace nomos {
