@@ -1174,23 +1174,30 @@ Index::Index(const std::string &path)
 	: _serverID(0), _path(path), _replicationLogKeepTime(0), _status(0),
 	_subLevelKeyType(KEY_INT32), _itemKeyType(KEY_INT64), _timeThread(NULL), _replicationAcceptThread(NULL)
 {
-	Directory dir(path.c_str());
-	BString topLevelPath;
-	while (dir.next()) {
-		if (!dir.isDirectory()) // skip files
-			continue;
-		if (dir.name()[0] == '.' && (dir.name()[1] == '.' || dir.name()[1] == 0)) // skip
-			continue;
-		std::string levelName(dir.name());
-		topLevelPath.sprintfSet("%s/%s", path.c_str(), dir.name());
-		TopLevelIndex *topLevelIndex = TopLevelIndex::createFromDirectory(levelName, this, topLevelPath.c_str());
-		if (!topLevelIndex) {
-			log::Error::L("Cannot load TopLevelIndex %s\n", topLevelPath.c_str());
-			continue;
+	Directory::makeDirRecursive(path.c_str());
+	try
+	{
+		Directory dir(path.c_str());
+		BString topLevelPath;
+		while (dir.next()) {
+			if (!dir.isDirectory()) // skip files
+				continue;
+			if (dir.name()[0] == '.' && (dir.name()[1] == '.' || dir.name()[1] == 0)) // skip
+				continue;
+			std::string levelName(dir.name());
+			topLevelPath.sprintfSet("%s/%s", path.c_str(), dir.name());
+			TopLevelIndex *topLevelIndex = TopLevelIndex::createFromDirectory(levelName, this, topLevelPath.c_str());
+			if (!topLevelIndex) {
+				log::Error::L("Cannot load TopLevelIndex %s\n", topLevelPath.c_str());
+				continue;
+			}
+			_index.emplace(levelName, TTopLevelIndexPtr(topLevelIndex));
 		}
-		_index.emplace(levelName, TTopLevelIndexPtr(topLevelIndex));
+		log::Info::L("Loaded %u top indexes\n", _index.size());
+	} catch (Directory::Error &er) {
+		log::Info::L("Cannot open index directory %s\n", path.c_str());
+		throw;
 	}
-	log::Info::L("Loaded %u top indexes\n", _index.size());
 }
 
 void Index::_stopThreads()
@@ -1648,9 +1655,11 @@ bool Index::_openCurrentReplicationLog()
 {
 	if (_currentReplicationLog.get())
 	{
-		if (!_currentReplicationLog->openForWrite())
+		if (!_currentReplicationLog->openForWrite()) {
+			log::Error::L("Cannot open binary log %s for writing\n", _currentReplicationLog->fileName().c_str());
 			return false;
-		log::Info::L("Open bin log %s for writing, current position is %u\n", _currentReplicationLog->fileName().c_str(), 
+		}
+		log::Info::L("Open binary log %s for writing, current position is %u\n", _currentReplicationLog->fileName().c_str(), 
 			_currentReplicationLog->fileSize());
 		return true;
 	}
@@ -1661,10 +1670,14 @@ bool Index::_openCurrentReplicationLog()
 	BString fileName;
 	fileName.sprintfSet("%s/%s%u_%+08x", _replicationLogPath.c_str(), REPLICATION_FILE_PREFIX.c_str(), _serverID, number);
 	TReplicationLogPtr rl(new ReplicationLog(number, fileName.c_str()));
-	if (!rl->openForWrite())
+	if (!rl->openForWrite()) {
+		log::Error::L("Cannot open binary log %s for writing\n", rl->fileName().c_str());
 		return false;
-	if (!rl->openForRead())
+	}
+	if (!rl->openForRead()) {
+		log::Error::L("Cannot open binary log %s for reading\n", rl->fileName().c_str());
 		return false;
+	}
 	log::Info::L("Create new bin log %s\n", fileName.c_str());
 	_currentReplicationLog = rl;
 	_replicationLogFiles.push_back(rl);

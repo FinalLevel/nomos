@@ -8,6 +8,8 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 #include <boost/property_tree/ini_parser.hpp>
+#include <grp.h>
+#include <pwd.h>
 
 #include "config.hpp"
 #include "log.hpp"
@@ -18,7 +20,7 @@ using namespace fl::nomos;
 using namespace boost::property_tree::ini_parser;
 
 Config::Config(int argc, char *argv[])
-	: _status(0), _logLevel(FL_LOG_LEVEL), _port(0), _cmdTimeout(0), _workerQueueLength(0), _workers(0),
+	: _uid(0), _gid(0), _status(0), _logLevel(FL_LOG_LEVEL), _port(0), _cmdTimeout(0), _workerQueueLength(0), _workers(0),
 	_bufferSize(0), _maxFreeBuffers(0),
 	_defaultSublevelKeyType(KEY_INT32), _defaultItemKeyType(KEY_INT64),
 	_syncThreadsCount(1), _serverID(0), _replicationLogKeepTime(0), _replicationPort(0)
@@ -46,6 +48,7 @@ Config::Config(int argc, char *argv[])
 			printf("nomos-server.dataPath is not set\n");
 			throw std::exception();
 		}
+		_parseUserGroupParams(pt);
 		_parseNetworkParams(pt);
 		_parseIndexParams(pt);
 		_parseReplicationParams(pt);
@@ -68,6 +71,37 @@ Config::Config(int argc, char *argv[])
 		throw;
 	}
 };
+
+void Config::_parseUserGroupParams(boost::property_tree::ptree &pt)
+{
+	_userName = pt.get<decltype(_userName)>("nomos-server.user", "nobody");
+	auto passwd = getpwnam(_userName.c_str());
+	if (passwd) {
+		_uid = passwd->pw_uid;
+	} else {
+		printf("User %s has not been found\n", _userName.c_str());
+		throw std::exception();
+	}
+
+	_groupName = pt.get<decltype(_groupName)>("nomos-server.group", "nobody");
+	auto groupData = getgrnam(_groupName.c_str());
+	if (groupData) {
+		_gid = groupData->gr_gid;
+	} else {
+		printf("Group %s has not been found\n", _groupName.c_str());
+		throw std::exception();
+	}
+}
+
+void Config::setProcessUserAndGroup()
+{
+	if (setgid(_gid) || setuid(_uid)) {
+		log::Error::L("Cannot set the process user %s (%d) and gid %s (%d)\n", _userName.c_str(), _uid, _groupName.c_str(),
+			_gid);
+	} else {
+		log::Error::L("Set the process user %s (%d) and gid %s (%d)\n", _userName.c_str(), _uid, _groupName.c_str(), _gid);
+	}
+}
 
 void Config::_parseNetworkParams(boost::property_tree::ptree &pt)
 {

@@ -130,10 +130,16 @@ namespace fl {
 			{
 				return _masters;
 			}
+			void setProcessUserAndGroup();
 		private:
+			void _parseUserGroupParams(boost::property_tree::ptree &pt);
 			void _parseNetworkParams(boost::property_tree::ptree &pt);
 			void _parseIndexParams(boost::property_tree::ptree &pt);
 			void _parseReplicationParams(boost::property_tree::ptree &pt);
+			std::string _userName;
+			uint32_t _uid;
+			std::string _groupName;
+			uint32_t _gid;
 			TStatus _status;
 			std::string _logPath;
 			int _logLevel;
