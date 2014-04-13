@@ -56,6 +56,7 @@ int main(int argc, char *argv[])
 		log::Warning::L("Starting Nomos Storage server\n");
 		if (!config->initNetwork())
 			return -1;
+		config->setProcessUserAndGroup();
 
 		NomosEventFactory *factory = new NomosEventFactory(config.get());
 		NomosThreadSpecificDataFactory *dataFactory = new NomosThreadSpecificDataFactory(config.get());

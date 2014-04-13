@@ -1,4 +1,6 @@
 [nomos-server]
+user=nomos
+group=nomos
 log=/var/log/nomos
 logLevel=4
 logStdout=on

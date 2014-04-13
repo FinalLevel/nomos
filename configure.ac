@@ -3,7 +3,6 @@ AC_PREREQ([2.59])
 AC_PROG_RANLIB
 AM_INIT_AUTOMAKE([1.10 -Wall foreign])
 AC_CONFIG_HEADERS([config.h])
-
 m4_include([fl_libs/m4/ax_boost_base.m4])
 m4_include([fl_libs/m4/ax_boost_filesystem.m4])
 m4_include([fl_libs/m4/ax_boost_unit_test_framework.m4])

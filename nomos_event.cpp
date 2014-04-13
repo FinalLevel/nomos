@@ -63,8 +63,10 @@ NomosEvent::~NomosEvent()
 void NomosEvent::_endWork()
 {
 	_curState = ST_FINISHED;
-	if (_descr != 0)
+	if (_descr != 0) {
 		close(_descr);
+		_descr = 0;
+	}
 	if (_networkBuffer)
 	{
 		auto threadSpecData = static_cast<NomosThreadSpecificData*>(_thread->threadSpecificData());
