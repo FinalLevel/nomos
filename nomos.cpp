@@ -40,6 +40,7 @@ void sigInt(int sig)
 void setSignals()
 {
 	signal(SIGINT, sigInt);
+	signal(SIGTERM, sigInt);
 }
 
 int main(int argc, char *argv[])
