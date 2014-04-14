@@ -24,7 +24,7 @@
 git clone https://github.com/FinalLevel/nomos.git
 cd nomos
 sh ./autogen.sh
-./configure --prefix=/usr --sysconfig=/etc
+./configure --prefix=/usr --sysconfdir=/etc
 make
 make check
 make install
