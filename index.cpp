@@ -1308,12 +1308,14 @@ bool Index::put(const std::string &level, const std::string &subLevel, const std
 			autoSync.unLock();
 			if (create(level, _subLevelKeyType, _itemKeyType)) {
 				return put(level, subLevel, itemKey, item, checkBeforeReplace);
-			}
-			else
+			} else {
+				log::Error::L("Cannot create a new top level %s/%s\n", level.c_str(), subLevel.c_str());
 				return false;
-		}
-		else
+			}
+		} else { 
+			log::Error::L("Level %s has been not found and auto level creating is off\n", level.c_str());
 			return false;
+		}
 	}
 	auto topLevel = f->second;
 	autoSync.unLock();
