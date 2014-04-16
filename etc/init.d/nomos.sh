@@ -24,11 +24,6 @@ NAME="nomos"
 WRAPPER_NAME="nomos_wrapper.sh"
 WRAPPER="$BIN_PATH$WRAPPER_NAME"
 PIDFILE="/var/run/nomos.pid"
-WPIDFILE="/var/run/wrapper/nomos.pid"
-
-if [ -f /etc/sysconfig/nomos ]; then
-	. /etc/sysconfig/nomos
-fi
 
 function check_pid_names {
 	pid="$1"
@@ -46,8 +41,8 @@ function check_pid_names {
 
 
 start() {
-	if [ -f "$WPIDFILE" ]; then
-		wpid=$( cat "$WPIDFILE" )
+	if [ -f "$PIDFILE" ]; then
+		wpid=$( head -1 "$PIDFILE" )
 
 		if [ "_$wpid" != "_" ] && kill -0 "$wpid" 2>/dev/null && check_pid_names "$wpid" "$WRAPPER_NAME" ; then
 			echo "Wrapper $WRAPPER is already running, waiting 10s before next recheck"
@@ -61,13 +56,13 @@ start() {
 }
 
 stop() {
-	dpid=$( cat "$PIDFILE" )
-	wpid=$( cat "$WPIDFILE" )
+	dpid=$( tail -1 "$PIDFILE" )
+	wpid=$( head -1 "$PIDFILE" )
 
 	check_pid_names "$wpid" "$WRAPPER_NAME" && kill -15 "$wpid" && sleep 5 && kill -9 "$wpid" 2>/dev/null
 	check_pid_names "$dpid" "$NAME" && kill -15 "$dpid" && sleep 5 && kill -9 "$dpid" 2>/dev/null
 
-	echo -n > "${PIDFILE}" ; echo -n > "${WPIDFILE}"
+	echo -n > "${PIDFILE}"
 }
 
 case "$1" in

@@ -11,7 +11,7 @@
 . /etc/rc.d/init.d/functions
 
 # default config
-CONFIG="/etc/nomos.cnf"
+#CONFIG="/etc/nomos.cnf"
 PROCESS="/usr/bin/nomos"
 PROCESS_NAME="nomos"
 LOGFILE="/var/log/nomos"
@@ -21,16 +21,6 @@ MAIL_CMD="/bin/mail"
 
 MAILTO="root@localhost"
 
-WPIDFILE="/var/run/wrapper/nomos.pid"
-
-if [ ! -d /var/run/wrapper ]
-then
-	mkdir /var/run/wrapper
-fi
-
-if [ -f /etc/sysconfig/nomos ]; then
-  . /etc/sysconfig/nomos
-fi
 
 ulimit -c unlimited
 ulimit -n 100000
@@ -52,8 +42,8 @@ while true ; do
 
 	"$PROCESS" $CONFIGCMD > /dev/null &
 	DPID=$!
-	echo $WPID > "$WPIDFILE"
-	echo $DPID > "$PIDFILE"
+	echo $WPID > "$PIDFILE"
+	echo $DPID >> "$PIDFILE"
 	wait
 
 	lastlog="$( echo \"*** $PROCESS_NAME DIED!!! ***\"; date; tail -2 $LOGFILE )"
