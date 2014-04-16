@@ -14,6 +14,8 @@ nomos_SOURCES = nomos.cpp $(NOMOS_FILES)
 nomosconfdir=$(sysconfdir)
 nomosconf_DATA = etc/nomos.cnf
 
+dist_bin_SCRIPTS = nomos_wrapper.sh
+
 check_PROGRAMS = nomos_test
 nomos_test_SOURCES = tests/test.cpp tests/index_test.cpp tests/replication_thread_test.cpp $(NOMOS_FILES)
 nomos_test_LDFLAGS = $(BOOST_LDFLAGS) $(BOOST_UNIT_TEST_FRAMEWORK_LIB)
