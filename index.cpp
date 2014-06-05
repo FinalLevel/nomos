@@ -181,8 +181,8 @@ public:
 	{
 		HeaderPacket headerPacket(_index->serverID());
 		headerPacket.cmd = EIndexCMDType::REMOVE;
-		headerPacket.subLevelKey = convertStdStringTo<TSubLevelKey>(subLevelKeyStr.c_str());
-		headerPacket.itemKey = convertStdStringTo<TItemKey>(key.c_str());
+		headerPacket.subLevelKey = convertStdStringTo<TSubLevelKey>(subLevelKeyStr.c_str(), NULL, 16);
+		headerPacket.itemKey = convertStdStringTo<TItemKey>(key.c_str(), NULL, 16);
 		
 		AutoMutex autoSync(&_sync);
 		auto subLevel = _subLevelItem.find(headerPacket.subLevelKey);
@@ -211,8 +211,8 @@ public:
 	{
 		HeaderPacket headerPacket(_index->serverID());
 		headerPacket.cmd = EIndexCMDType::TOUCH;
-		headerPacket.subLevelKey = convertStdStringTo<TSubLevelKey>(subLevelKeyStr.c_str());
-		headerPacket.itemKey = convertStdStringTo<TItemKey>(key.c_str());
+		headerPacket.subLevelKey = convertStdStringTo<TSubLevelKey>(subLevelKeyStr.c_str(), NULL, 16);
+		headerPacket.itemKey = convertStdStringTo<TItemKey>(key.c_str(), NULL, 16);
 		
 		AutoMutex autoSync(&_sync);
 		auto subLevel = _subLevelItem.find(headerPacket.subLevelKey);
@@ -242,8 +242,8 @@ public:
 	{
 		HeaderPacket headerPacket(_index->serverID());
 		headerPacket.cmd = EIndexCMDType::TOUCH;
-		headerPacket.subLevelKey = convertStdStringTo<TSubLevelKey>(subLevelKeyStr.c_str());
-		headerPacket.itemKey = convertStdStringTo<TItemKey>(key.c_str());
+		headerPacket.subLevelKey = convertStdStringTo<TSubLevelKey>(subLevelKeyStr.c_str(), NULL, 16);
+		headerPacket.itemKey = convertStdStringTo<TItemKey>(key.c_str(), NULL, 16);
 		
 		
 		AutoMutex autoSync(&_sync);
@@ -266,8 +266,8 @@ public:
 	virtual void put(const std::string &subLevel, const std::string &key, TItemSharedPtr &item, bool checkBeforeReplace)
 	{
 		DataPacket dataPacket(_index->serverID());
-		dataPacket.subLevelKey = convertStdStringTo<TSubLevelKey>(subLevel);
-		dataPacket.itemKey = convertStdStringTo<TItemKey>(key);
+		dataPacket.subLevelKey = convertStdStringTo<TSubLevelKey>(subLevel, NULL, 16);
+		dataPacket.itemKey = convertStdStringTo<TItemKey>(key, NULL, 16);
 		dataPacket.item = item;
 		
 		TItemSharedPtr oldItem;
