@@ -19,7 +19,7 @@ PIDFILE="/var/run/nomos.pid"
 DESCRIPTION="Nomos server wrapper script"
 MAIL_CMD="/bin/mail"
 
-MAILTO="root@localhost"
+MAILTO="root"
 
 
 ulimit -c unlimited
