@@ -1,0 +1,6 @@
+/var/log/nomos.log {
+  missingok
+  notifempty
+  delaycompress
+  copytruncate
+}

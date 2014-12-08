@@ -1,7 +1,7 @@
 [nomos-server]
 user=nomos
 group=nomos
-log=/var/log/nomos
+log=/var/log/nomos.log
 logLevel=4
 logStdout=on
 dataPath=/var/lib/nomos/data
