@@ -1180,12 +1180,12 @@ Index::Index(const std::string &path)
 		Directory dir(path.c_str());
 		BString topLevelPath;
 		while (dir.next()) {
-			if (!dir.isDirectory()) // skip files
-				continue;
 			if (dir.name()[0] == '.' && (dir.name()[1] == '.' || dir.name()[1] == 0)) // skip
 				continue;
 			std::string levelName(dir.name());
 			topLevelPath.sprintfSet("%s/%s", path.c_str(), dir.name());
+			if (!dir.isDirectory(topLevelPath.c_str())) // skip files
+				continue;
 			TopLevelIndex *topLevelIndex = TopLevelIndex::createFromDirectory(levelName, this, topLevelPath.c_str());
 			if (!topLevelIndex) {
 				log::Error::L("Cannot load TopLevelIndex %s\n", topLevelPath.c_str());

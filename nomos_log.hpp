@@ -22,10 +22,9 @@ namespace fl {
 			using fl::log::TTargetList;
 			using fl::log::LogSystem;
 
-			class NomosLogSystem : public LogSystem
+			class NomosLogSystem
 			{
 			public:
-				NomosLogSystem();
 				static bool log(
 					const size_t target, 
 					const int level, 
@@ -36,8 +35,7 @@ namespace fl {
 				);
 				static bool init(fl::nomos::Config *config);
 			private:
-				static NomosLogSystem _logSystem;
-				int _logLevel;
+				static int _logLevel;
 			};
 		
 			using fl::log::Log;
