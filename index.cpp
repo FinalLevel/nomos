@@ -177,7 +177,7 @@ public:
 
 	virtual ~MemmoryTopLevelIndex() {}
 
-	virtual bool removeSubLevel(const std::string &subLevelKeyStr) override
+	virtual bool removeSubLevel(const std::string &subLevelKeyStr)
 	{
 		HeaderPacket headerPacket(_index->serverID());
 		headerPacket.cmd = EIndexCMDType::REMOVE;
@@ -206,7 +206,7 @@ public:
 		return true;
 	}
 	
-	virtual bool remove(const std::string &subLevelKeyStr, const std::string &key) override
+	virtual bool remove(const std::string &subLevelKeyStr, const std::string &key)
 	{
 		HeaderPacket headerPacket(_index->serverID());
 		headerPacket.cmd = EIndexCMDType::REMOVE;
