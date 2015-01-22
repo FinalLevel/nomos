@@ -177,7 +177,36 @@ public:
 
 	virtual ~MemmoryTopLevelIndex() {}
 
-	virtual bool remove(const std::string &subLevelKeyStr, const std::string &key)
+	virtual bool removeSubLevel(const std::string &subLevelKeyStr) override
+	{
+		HeaderPacket headerPacket(_index->serverID());
+		headerPacket.cmd = EIndexCMDType::REMOVE;
+		headerPacket.subLevelKey = convertStdStringTo<TSubLevelKey>(subLevelKeyStr.c_str(), NULL, 16);
+		
+		AutoMutex autoSync(&_sync);
+		auto subLevel = _subLevelItem.find(headerPacket.subLevelKey);
+		if (subLevel == _subLevelItem.end())
+			return false;
+		THeaderPacketVector deletedItems;
+		for (auto slice = subLevel->second.begin(); slice != subLevel->second.end(); slice++) {
+			for (auto item = slice->begin(); item != slice->end(); item++) {
+				item->second->setDeleted();
+				headerPacket.itemKey = item->first;
+				headerPacket.itemHeader = item->second->header();
+				deletedItems.push_back(headerPacket);
+			}
+		}
+		_subLevelItem.erase(subLevel);
+		if (!deletedItems.empty()) {
+			autoSync.unLock();
+			_packetSync.lock();
+			_headerPackets.insert(_headerPackets.end(), deletedItems.begin(), deletedItems.end());
+			_packetSync.unLock();
+		}
+		return true;
+	}
+	
+	virtual bool remove(const std::string &subLevelKeyStr, const std::string &key) override
 	{
 		HeaderPacket headerPacket(_index->serverID());
 		headerPacket.cmd = EIndexCMDType::REMOVE;
@@ -521,7 +550,7 @@ public:
 				switch (cmd)
 				{
 					case EIndexCMDType::REMOVE:
-					break;
+					break;	
 					case EIndexCMDType::TOUCH:
 					case EIndexCMDType::PUT: 
 					{
@@ -1322,6 +1351,23 @@ bool Index::put(const std::string &level, const std::string &subLevel, const std
 	topLevel->put(subLevel, itemKey, item, checkBeforeReplace);
 	addToSync(topLevel);
 	return true;
+}
+
+bool Index::removeSubLevel(const std::string &level, const std::string &subLevel)
+{
+	AutoMutex autoSync(&_sync);
+	auto f = _index.find(level);
+	if (f == _index.end())
+		return false;
+	auto topLevel = f->second;
+	autoSync.unLock();
+	if (topLevel->removeSubLevel(subLevel))
+	{
+		addToSync(topLevel);
+		return true;
+	}
+	else
+		return false;	
 }
 
 bool Index::remove(const std::string &level, const std::string &subLevel, const std::string &itemKey)

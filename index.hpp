@@ -104,6 +104,7 @@ namespace fl {
 			virtual void put(const std::string &subLevel, const std::string &key, TItemSharedPtr &item, 
 				bool checkBeforeReplace) = 0;
 			virtual bool remove(const std::string &subLevel, const std::string &itemKey) = 0;
+			virtual bool removeSubLevel(const std::string &subLevel) = 0;
 			virtual bool touch(const std::string &subLevel, const std::string &itemKey, 
 				const ItemHeader::TTime setTime, const ItemHeader::TTime curTime) = 0;
 			virtual void clearOld(const ItemHeader::TTime curTime) = 0;
@@ -167,6 +168,7 @@ namespace fl {
 			bool touch(const std::string &level, const std::string &subLevel, const std::string &itemKey, 
 				const ItemHeader::TTime setTime, const ItemHeader::TTime curTime);
 			bool remove(const std::string &level, const std::string &subLevel, const std::string &itemKey);
+			bool removeSubLevel(const std::string &level, const std::string &subLevel);
 			
 			
 			void clearOld(const ItemHeader::TTime curTime);

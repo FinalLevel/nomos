@@ -221,6 +221,7 @@ bool NomosEvent::_parseRemoveQuery(NetworkBuffer::TDataPtr &query)
 	std::string subLevel;
 	if (!_readString(subLevel, query, ','))
 		return false;
+	
 	std::string itemKey;
 	if (!_readString(itemKey, query, 0))
 		return false;
@@ -232,6 +233,25 @@ bool NomosEvent::_parseRemoveQuery(NetworkBuffer::TDataPtr &query)
 		_curState = ER_NOT_FOUND;
 		return false;
 	}
+}
+
+bool NomosEvent::_parseRemoveSubLevelQuery(NetworkBuffer::TDataPtr &query)
+{
+	std::string level;
+	if (!_readString(level, query, ','))
+		return false;
+	std::string subLevel;
+	if (!_readString(subLevel, query, 0))
+		return false;
+	
+
+	if (_index->removeSubLevel(level, subLevel)) {
+		_formOkAnswer(0);
+		return true;
+	} else {
+		_curState = ER_NOT_FOUND;
+		return false;
+	}	
 }
 
 bool NomosEvent::_parseQuery()
@@ -263,6 +283,8 @@ bool NomosEvent::_parseQuery()
 		return _parseTouchQuery(query);
 	case CMD_REMOVE:
 		return _parseRemoveQuery(query);
+	case CMD_REMOVE_SUBLEVEL:
+		return _parseRemoveSubLevelQuery(query);
 	case CMD_CREATE:
 		return _parseCreateQuery(query);
 	default:

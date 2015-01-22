@@ -117,6 +117,30 @@ BOOST_AUTO_TEST_CASE( AddFindRemoveIndex )
 	);
 }
 
+BOOST_AUTO_TEST_CASE( testRemoveSublevelIndex )
+{
+	TestPath testPath("nomos_index");
+	Time curTime;
+	try
+	{
+		Index index(testPath.path());
+		TItemSharedPtr item(new Item());
+		BOOST_CHECK(index.create("testLevel", KEY_INT32, KEY_STRING));
+		BOOST_CHECK(index.put("testLevel", "1", "testKey", item));
+		BOOST_CHECK(index.find("testLevel", "1", "testKey", curTime.unix()).get() != NULL);
+		
+		TItemSharedPtr item2(new Item());
+		BOOST_CHECK(index.put("testLevel", "2", "testKey", item2));
+		BOOST_CHECK(index.find("testLevel", "2", "testKey", curTime.unix()).get() != NULL);
+		
+		BOOST_CHECK(index.removeSubLevel("testLevel", "1"));
+		BOOST_CHECK(index.find("testLevel", "1", "testKey", curTime.unix()).get() == NULL);
+		BOOST_CHECK(index.find("testLevel", "2", "testKey", curTime.unix()).get() != NULL);
+	} catch (...) {
+		BOOST_CHECK_NO_THROW(throw);
+	}
+}
+
 BOOST_AUTO_TEST_CASE( testIndexSyncPut )
 {
 	TestPath testPath("nomos_index");

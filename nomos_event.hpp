@@ -44,6 +44,7 @@ namespace fl {
 				CMD_UPDATE = 'U', // check original before rewriting
 				CMD_TOUCH = 'T',
 				CMD_REMOVE = 'R',
+				CMD_REMOVE_SUBLEVEL = 'S',
 				CMD_CREATE = 'C',
 			};
 
@@ -68,6 +69,7 @@ namespace fl {
 			bool _parseGetQuery(NetworkBuffer::TDataPtr &query);
 			bool _parseTouchQuery(NetworkBuffer::TDataPtr &query);
 			bool _parseRemoveQuery(NetworkBuffer::TDataPtr &query);
+			bool _parseRemoveSubLevelQuery(NetworkBuffer::TDataPtr &query);
 			
 			bool _formPutAnswer();
 			

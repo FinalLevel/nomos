@@ -110,3 +110,11 @@ class Nomos(object):
         cmd = "V01,R," + str(level) + "," + str(subLevel) + "," + str(key) + "\n"
         self._send(cmd)
         return self._receiveAnswer()
+			
+    def removeSublevel(self, level, subLevel):
+        if not self._connect():
+            return None
+
+        cmd = "V01,S," + str(level) + "," + str(subLevel) + "\n"
+        self._send(cmd)
+        return self._receiveAnswer()			
