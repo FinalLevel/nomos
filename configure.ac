@@ -1,7 +1,6 @@
 AC_INIT([Nomos Storage Server], [0.1], [bug-report@final-level.com], [nomos], [https://github.com/FinalLevel/nomos])
 AC_PREREQ([2.59])
 AC_PROG_RANLIB
-AM_PROG_AR
 AM_INIT_AUTOMAKE([1.10 -Wall foreign])
 AC_CONFIG_HEADERS([config.h])
 m4_include([fl_libs/m4/ax_boost_base.m4])
