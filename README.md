@@ -1,4 +1,6 @@
-###Nomos Storage is an in-memory, key-value, persistent and high available server, which is simple but extremely fast
+# Nomos Storage
+
+Nomos Storage is an in-memory, key-value, persistent and high available server, which is simple but extremely fast.
 
 ***
 ## Features
@@ -87,3 +89,6 @@ masters=127.0.0.1:7018,127.0.0.1:7019
 
 `/usr/bin/nomos &` or `/usr/bin/nomos -c someOtherConfigFile &`
 
+## Copyrights 
+
+[Final Level](https://final-level.com/)
